@@ -1,0 +1,17 @@
+name: astrbot_plugin_favorability
+desc: 好感度系统——AI根据对话内容自主更新用户好感度与评价，支持表情包回应。支持会话隔离模式。
+help: |
+  用户指令：
+    /好感度查询 或 /我的好感度 — 查看自己的好感度和评价
+    /好感度排行             — 查看当前会话的排行榜（前10名）
+    /重置好感度             — 重置自己的好感度
+
+  管理员指令：
+    /设置好感度 <用户ID> <分数>    — 强制设定指定用户好感度
+    /查询好感度 <用户ID>          — 查询指定用户好感度
+    /重置指定好感度 <用户ID>       — 重置指定用户好感度
+
+  表情包：在 data/plugin_data/astrbot_plugin_favorability/stickers/<分类名>/ 下放置图片即可启用 [STK:分类名] 表情包功能。
+version: v1.0.0
+author: Iris1598
+repo: "https://github.com/iris1598/astrbot_plugin_favorability"
