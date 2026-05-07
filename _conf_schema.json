@@ -1,8 +1,14 @@
 {
-    "session_based": {
-        "description": "是否启用会话隔离模式",
+    "favorability_enabled": {
+        "description": "好感度系统开关",
         "type": "bool",
-        "default": false,
-        "hint": "开启后每个群/私聊的好感度独立计算；关闭则以用户ID+群号作为维度"
+        "default": true,
+        "hint": "关闭后不再注入好感度提示词，模型不会感知好感度系统的存在"
+    },
+    "sticker_enabled": {
+        "description": "表情包系统开关",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后不再注入表情包提示词，模型不会使用表情包功能"
     }
 }
