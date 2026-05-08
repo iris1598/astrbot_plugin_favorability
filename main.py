@@ -15,7 +15,6 @@ from astrbot.api import AstrBotConfig, logger
 # ==================== 伪造工具调用常量 ====================
 FAKE_TOOL_CALL_NAME = "get_user_favorability_status"
 FAKE_TOOL_CALL_ID_PREFIX = "fake_fav_"
-INJECTION_METHOD = "fake_tool_call"  # 可选: "system_prompt", "fake_tool_call"
 
 
 # ==================== 表情包管理 ====================
@@ -156,6 +155,10 @@ class FavorabilityPlugin(Star):
     @property
     def sticker_enabled(self) -> bool:
         return bool(self.config.get("sticker_enabled", True))
+
+    @property
+    def injection_method(self) -> str:
+        return self.config.get("injection_method", "fake_tool_call")
 
     def _keys(self, event: AstrMessageEvent) -> tuple[str, str]:
         return self.db._parse_origin(event)
@@ -299,7 +302,7 @@ class FavorabilityPlugin(Star):
         session_id = event.unified_msg_origin
 
         # 清理旧的伪造工具调用消息（避免重复注入）
-        if INJECTION_METHOD == "fake_tool_call":
+        if self.injection_method == "fake_tool_call":
             self._remove_fake_tool_call_from_context(req, session_id)
 
         # 获取动态数据
@@ -312,7 +315,7 @@ class FavorabilityPlugin(Star):
         if self.sticker_enabled:
             categories = self.stickers.get_categories()
 
-        if INJECTION_METHOD == "fake_tool_call":
+        if self.injection_method == "fake_tool_call":
             # 使用伪造工具调用方式注入
             fake_messages = self._format_favorability_for_fake_tool_call(
                 user_info or {"score": 0, "eval": "初次见面"},
