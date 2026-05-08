@@ -160,18 +160,32 @@ class FavorabilityPlugin(Star):
     async def inject_favor_prompt(self, event: AstrMessageEvent, req: ProviderRequest):
         """向 LLM 注入当前用户好感度状态与标记指令。
 
-        缓存优化策略：
-        - 【静态规则】注入到 system_prompt 前缀，内容完全固定，跨请求高度复用，最大化缓存命中。
-        - 【动态状态】（好感度分数/评价等每次不同的数据）注入到 req.prompt（追加到上下文末尾），
-          避免污染 system_prompt 前缀，确保静态前缀不变，提升 prefix cache 命中率。
+        组装顺序：[人格原始 prompt] + [静态规则] + [动态状态]
         """
         if not self.favorability_enabled and not self.sticker_enabled:
             return
 
         group_key, user_id = self._keys(event)
 
-        # ── 第一部分：静态规则 → 注入到 system_prompt 前缀 ──────────────────
-        # 此部分内容完全固定，不含任何动态变量，最大化缓存命中。
+        # ── 第一部分：动态状态 ────────────────────────────────────────────────
+        # 好感度分数、印象、表情包分类每次请求都可能不同，置于中间。
+        dynamic_parts = []
+
+        if self.favorability_enabled:
+            user_info = self.db.get_user_info(group_key, user_id)
+            dynamic_parts.append(
+                f"[当前好感度状态] 好感度={user_info['score']}，印象={user_info['eval']}"
+            )
+
+        if self.sticker_enabled:
+            categories = self.stickers.get_categories()
+            if categories:
+                dynamic_parts.append(
+                    f"[当前可用表情包分类] {', '.join(categories)}"
+                )
+
+        # ── 第二部分：静态规则 ────────────────────────────────────────────────
+        # 内容完全固定，置于末尾，跨请求保持一致。
         static_parts = []
 
         if self.favorability_enabled:
@@ -203,31 +217,10 @@ class FavorabilityPlugin(Star):
                 "发送表情包格式（置于回复末尾）：[STK:分类名]\n"
             )
 
-        if static_parts:
-            # 拼在 system_prompt 最前面，确保静态前缀最长、最稳定
-            req.system_prompt = "".join(static_parts) + (req.system_prompt or "")
-
-        # ── 第二部分：动态状态 → 追加到 req.prompt（contexts 末尾）──────────
-        # 动态内容（好感度分数/印象/表情包分类）每次请求都可能不同，
-        # 放在 prompt 末尾而非 system_prompt，避免破坏静态前缀的缓存。
-        dynamic_parts = []
-
-        if self.favorability_enabled:
-            user_info = self.db.get_user_info(group_key, user_id)
-            dynamic_parts.append(
-                f"[当前好感度状态] 好感度={user_info['score']}，印象={user_info['eval']}"
-            )
-
-        if self.sticker_enabled:
-            categories = self.stickers.get_categories()
-            if categories:
-                dynamic_parts.append(
-                    f"[当前可用表情包分类] {', '.join(categories)}"
-                )
-
-        if dynamic_parts:
-            state_hint = "\n".join(dynamic_parts)
-            req.prompt = (req.prompt or "") + f"\n\n{state_hint}"
+        # 组装最终 system_prompt：[人格原始 prompt] + [静态规则] + [动态状态]
+        static_block = "".join(static_parts)
+        dynamic_block = "\n\n" + "\n".join(dynamic_parts) if dynamic_parts else ""
+        req.system_prompt = (req.system_prompt or "") + static_block + dynamic_block
 
     # ==================== LLM 响应解析 ====================
 
