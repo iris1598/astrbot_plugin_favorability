@@ -10,12 +10,5 @@
         "type": "bool",
         "default": true,
         "hint": "关闭后不再注入表情包提示词，模型不会使用表情包功能"
-    },
-    "injection_method": {
-        "description": "提示词注入方式",
-        "type": "string",
-        "default": "fake_tool_call",
-        "hint": "选择提示词注入方式。fake_tool_call: 伪造成工具调用（推荐，缓存命中率高）；system_prompt: 传统系统提示词追加",
-        "options": ["fake_tool_call", "system_prompt"]
     }
 }
