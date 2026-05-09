@@ -4,12 +4,14 @@ import random
 import asyncio
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 import astrbot.api.message_components as Comp
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api import AstrBotConfig, logger
+from astrbot.core.agent.message import TextPart
 
 
 # ==================== 表情包管理 ====================
@@ -151,6 +153,14 @@ class FavorabilityPlugin(Star):
     def sticker_enabled(self) -> bool:
         return bool(self.config.get("sticker_enabled", True))
 
+    @property
+    def system_time_enabled(self) -> bool:
+        return bool(self.config.get("system_time_enabled", True))
+
+    @property
+    def user_info_enabled(self) -> bool:
+        return bool(self.config.get("user_info_enabled", True))
+
     def _keys(self, event: AstrMessageEvent) -> tuple[str, str]:
         return self.db._parse_origin(event)
 
@@ -158,34 +168,17 @@ class FavorabilityPlugin(Star):
 
     @filter.on_llm_request()
     async def inject_favor_prompt(self, event: AstrMessageEvent, req: ProviderRequest):
-        """向 LLM 注入当前用户好感度状态与标记指令。
+        """向 LLM 注入好感度系统规则与动态状态。
 
-        组装顺序：[人格原始 prompt] + [静态规则] + [动态状态]
+        静态规则追加到 system_prompt，动态状态通过 extra_user_content_parts 注入。
         """
         if not self.favorability_enabled and not self.sticker_enabled:
             return
 
         group_key, user_id = self._keys(event)
 
-        # ── 第一部分：动态状态 ────────────────────────────────────────────────
-        # 好感度分数、印象、表情包分类每次请求都可能不同，置于中间。
-        dynamic_parts = []
-
-        if self.favorability_enabled:
-            user_info = self.db.get_user_info(group_key, user_id)
-            dynamic_parts.append(
-                f"[当前好感度状态] 好感度={user_info['score']}，印象={user_info['eval']}"
-            )
-
-        if self.sticker_enabled:
-            categories = self.stickers.get_categories()
-            if categories:
-                dynamic_parts.append(
-                    f"[当前可用表情包分类] {', '.join(categories)}"
-                )
-
-        # ── 第二部分：静态规则 ────────────────────────────────────────────────
-        # 内容完全固定，置于末尾，跨请求保持一致。
+        # ── 第一部分：静态规则（追加到 system_prompt）────────────────────────
+        # 规则内容完全固定，跨请求保持一致，适合放在 system_prompt。
         static_parts = []
 
         if self.favorability_enabled:
@@ -212,15 +205,41 @@ class FavorabilityPlugin(Star):
             )
 
         if self.sticker_enabled:
+            categories = self.stickers.get_categories()
+            cat_str = f"可用分类：{', '.join(categories)}" if categories else "（暂无分类）"
             static_parts.append(
-                "--- 表情包机制（静态规则）---\n"
+                "--- 表情包机制 ---\n"
                 "发送表情包格式（置于回复末尾）：[STK:分类名]\n"
+                f"{cat_str}\n"
             )
 
-        # 组装最终 system_prompt：[人格原始 prompt] + [静态规则] + [动态状态]
         static_block = "".join(static_parts)
-        dynamic_block = "\n\n" + "\n".join(dynamic_parts) if dynamic_parts else ""
-        req.system_prompt = (req.system_prompt or "") + static_block + dynamic_block
+        if static_block:
+            req.system_prompt = (req.system_prompt or "") + static_block
+
+        # ── 第二部分：动态状态（通过 extra_user_content_parts 注入）───────────
+        # 好感度、时间、用户信息等每轮可能变化，放在 extra_user_content_parts
+        # 以避免破坏 system_prompt 缓存。
+        dynamic_lines = []
+
+        if self.favorability_enabled:
+            user_info = self.db.get_user_info(group_key, user_id)
+            dynamic_lines.append(f"好感度：{user_info['score']}")
+            dynamic_lines.append(f"印象：{user_info['eval']}")
+
+        if self.system_time_enabled:
+            time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            dynamic_lines.append(f"当前时间：{time_str}")
+
+        if self.user_info_enabled:
+            sender_name = event.get_sender_name()
+            sender_id = event.get_sender_id()
+            dynamic_lines.append(f"用户名：{sender_name}")
+            dynamic_lines.append(f"用户ID：{sender_id}")
+
+        if dynamic_lines:
+            dynamic_text = "<dynamic_context>\n" + "\n".join(dynamic_lines) + "\n</dynamic_context>"
+            req.extra_user_content_parts.append(TextPart(text=dynamic_text))
 
     # ==================== LLM 响应解析 ====================
 
