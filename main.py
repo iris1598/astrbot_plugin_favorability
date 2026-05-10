@@ -16,6 +16,7 @@ from astrbot.core.agent.message import TextPart
 
 # ==================== 表情包管理 ====================
 
+
 class StickerManager:
     """管理本地表情包目录"""
 
@@ -31,8 +32,9 @@ class StickerManager:
         if not cat_path.exists() or not cat_path.is_dir():
             return None
         files = [
-            f for f in cat_path.iterdir()
-            if f.is_file() and f.suffix.lower() in ('.jpg', '.png', '.gif', '.webp')
+            f
+            for f in cat_path.iterdir()
+            if f.is_file() and f.suffix.lower() in (".jpg", ".png", ".gif", ".webp")
         ]
         if not files:
             return None
@@ -40,6 +42,7 @@ class StickerManager:
 
 
 # ==================== 好感度数据管理 ====================
+
 
 class FavorabilityManager:
     """
@@ -51,6 +54,7 @@ class FavorabilityManager:
         }
     }
     """
+
     DEFAULT_USER = {"score": 0, "eval": "初次见面"}
 
     def __init__(self, data_path: Path):
@@ -118,7 +122,7 @@ class FavorabilityManager:
         group_key: str,
         user_id: str,
         change: int = 0,
-        new_eval: Optional[str] = None
+        new_eval: Optional[str] = None,
     ) -> dict:
         async with self.lock:
             data = self._read()
@@ -156,12 +160,13 @@ class FavorabilityManager:
 
 # ==================== 正则常量 ====================
 
-RE_FAV = re.compile(r'\[FAV\s*[:：]\s*([+-]?\d+)\]', re.I)
-RE_EVAL = re.compile(r'\[EVAL\s*[:：]\s*(.*?)\]', re.I)
-RE_STK = re.compile(r'\[STK\s*[:：]\s*(.*?)\]', re.I)
+RE_FAV = re.compile(r"\[FAV\s*[:：]\s*([+-]?\d+)\]", re.I)
+RE_EVAL = re.compile(r"\[EVAL\s*[:：]\s*(.*?)\]", re.I)
+RE_STK = re.compile(r"\[STK\s*[:：]\s*(.*?)\]", re.I)
 
 
 # ==================== 工具函数 ====================
+
 
 def extract_user_id(raw: str) -> str:
     """从 @ 提及文本中提取纯数字用户ID。
@@ -174,12 +179,12 @@ def extract_user_id(raw: str) -> str:
     """
     raw = raw.strip()
     # 优先从括号中提取数字（QQ @ 提及格式）
-    m = re.search(r'\((\d+)\)', raw)
+    m = re.search(r"\((\d+)\)", raw)
     if m:
         return m.group(1)
     # 去掉前导 @ 后提取数字
-    cleaned = raw.lstrip('@')
-    m = re.search(r'(\d+)', cleaned)
+    cleaned = raw.lstrip("@")
+    m = re.search(r"(\d+)", cleaned)
     if m:
         return m.group(1)
     return raw  # 无法提取时原样返回
@@ -187,9 +192,14 @@ def extract_user_id(raw: str) -> str:
 
 # ==================== 插件主类 ====================
 
-@register("favorability", "YourName", "好感度系统：AI根据对话自主更新用户好感度、评价，支持表情包回应", "1.0.0")
-class FavorabilityPlugin(Star):
 
+@register(
+    "favorability",
+    "YourName",
+    "好感度系统：AI根据对话自主更新用户好感度、评价，支持表情包回应",
+    "1.0.0",
+)
+class FavorabilityPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
@@ -259,7 +269,9 @@ class FavorabilityPlugin(Star):
 
         if self.sticker_enabled:
             categories = self.stickers.get_categories()
-            cat_str = f"可用分类：{', '.join(categories)}" if categories else "（暂无分类）"
+            cat_str = (
+                f"可用分类：{', '.join(categories)}" if categories else "（暂无分类）"
+            )
             static_parts.append(
                 "--- 表情包机制 ---\n"
                 "发送表情包格式（置于回复末尾）：[STK:分类名]\n"
@@ -291,7 +303,11 @@ class FavorabilityPlugin(Star):
             dynamic_lines.append(f"用户ID：{sender_id}")
 
         if dynamic_lines:
-            dynamic_text = "<dynamic_context>\n" + "\n".join(dynamic_lines) + "\n</dynamic_context>"
+            dynamic_text = (
+                "<dynamic_context>\n"
+                + "\n".join(dynamic_lines)
+                + "\n</dynamic_context>"
+            )
             req.extra_user_content_parts.append(TextPart(text=dynamic_text))
 
     # ==================== LLM 响应解析 ====================
@@ -310,10 +326,10 @@ class FavorabilityPlugin(Star):
         stk_matches = RE_STK.findall(original)
 
         # 2. 始终清理文本（移除所有标记，避免残留泄露）
-        clean_text = RE_FAV.sub('', original)
-        clean_text = RE_EVAL.sub('', clean_text)
-        clean_text = RE_STK.sub('', clean_text)
-        clean_text = re.sub(r'\n\s*\n', '\n', clean_text).strip()
+        clean_text = RE_FAV.sub("", original)
+        clean_text = RE_EVAL.sub("", clean_text)
+        clean_text = RE_STK.sub("", clean_text)
+        clean_text = re.sub(r"\n\s*\n", "\n", clean_text).strip()
         resp.completion_text = clean_text
 
         # 如果没有任何标记，直接返回
@@ -336,7 +352,9 @@ class FavorabilityPlugin(Star):
         # 4. 更新数据库（仅好感度开关开启时）
         if handle_favor:
             if change != 0 or new_eval is not None:
-                user_data = await self.db.update_user(group_key, user_id, change, new_eval)
+                user_data = await self.db.update_user(
+                    group_key, user_id, change, new_eval
+                )
             else:
                 user_data = self.db.get_user_info(group_key, user_id)
         else:
@@ -352,11 +370,14 @@ class FavorabilityPlugin(Star):
                 tips = []
                 if change != 0:
                     symbol = "+" if change > 0 else ""
-                    tips.append(f"好感度 {symbol}{change}（当前: {user_data['score']}）")
+                    tips.append(
+                        f"好感度 {symbol}{change}（当前: {user_data['score']}）"
+                    )
                 if new_eval is not None:
                     tips.append("评价已更新 ✨")
                 if tips:
                     from astrbot.api.event import MessageChain
+
                     try:
                         mc = MessageChain().message(" | ".join(tips))
                         await self.context.send_message(umo, mc)
@@ -370,6 +391,7 @@ class FavorabilityPlugin(Star):
                     if img_path:
                         try:
                             from astrbot.api.event import MessageChain
+
                             mc = MessageChain().file_image(str(img_path))
                             await self.context.send_message(umo, mc)
                         except Exception as e:
@@ -384,8 +406,8 @@ class FavorabilityPlugin(Star):
         """查询自己的好感度和评价"""
         group_key, user_id = self._keys(event)
         info = self.db.get_user_info(group_key, user_id)
-        score = info['score']
-        evaluation = info['eval']
+        score = info["score"]
+        evaluation = info["eval"]
 
         if score > 50:
             title = "挚友"
@@ -399,9 +421,7 @@ class FavorabilityPlugin(Star):
             title = "素不相识"
 
         yield event.plain_result(
-            f"📊 你的好感度档案：\n"
-            f"当前分数：{score}（{title}）\n"
-            f"她的评价：{evaluation}"
+            f"📊 你的好感度档案：\n当前分数：{score}（{title}）\n她的评价：{evaluation}"
         )
 
     @filter.command("好感度排行")
@@ -414,13 +434,19 @@ class FavorabilityPlugin(Star):
             yield event.plain_result("🌸 还没有好感度记录哦~")
             return
 
-        sorted_list = sorted(group_data.items(), key=lambda x: x[1]['score'], reverse=True)[:10]
+        sorted_list = sorted(
+            group_data.items(), key=lambda x: x[1]["score"], reverse=True
+        )[:10]
         medals = ["🥇", "🥈", "🥉"] + ["👤"] * 7
 
         msg = "🏆 【好感度荣誉榜】 🏆\n————————————————"
         for i, (uid, udata) in enumerate(sorted_list):
-            score = udata['score']
-            display_eval = (udata['eval'][:12] + '..') if len(udata['eval']) > 12 else udata['eval']
+            score = udata["score"]
+            display_eval = (
+                (udata["eval"][:12] + "..")
+                if len(udata["eval"]) > 12
+                else udata["eval"]
+            )
             msg += f"\n{medals[i]} {uid} | {score}分\n   └ 📝 {display_eval}"
         msg += "\n————————————————\n💡 发送「好感度查询」查看你的详细档案"
 
@@ -511,9 +537,7 @@ class FavorabilityPlugin(Star):
 
         info = self.db.get_user_info(group_key, target_id)
         yield event.plain_result(
-            f"📊 {label}的好感度档案：\n"
-            f"分数：{info['score']}\n"
-            f"评价：{info['eval']}"
+            f"📊 {label}的好感度档案：\n分数：{info['score']}\n评价：{info['eval']}"
         )
 
     @filter.command("重置指定好感度")
