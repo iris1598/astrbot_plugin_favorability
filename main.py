@@ -60,6 +60,9 @@ class FavorabilityManager:
         if not self.data_file.exists():
             self._write({})
 
+        # 启动时自动迁移：修正历史错误格式的 user_id key
+        self._migrate_legacy_keys()
+
     def _read(self) -> dict:
         try:
             with open(self.data_file, "r", encoding="utf-8") as f:
@@ -73,6 +76,32 @@ class FavorabilityManager:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"[favorability] 写入失败: {e}")
+
+    def _migrate_legacy_keys(self):
+        """启动时迁移历史错误 key（如 @昵称(123456)）为纯数字 ID。"""
+        data = self._read()
+        migrated = 0
+        new_data = {}
+        for group_key, users in data.items():
+            if not isinstance(users, dict):
+                new_data[group_key] = users
+                continue
+            new_users = {}
+            for old_key, val in users.items():
+                new_key = extract_user_id(old_key)
+                # 如果同一 group 内新 key 已存在，保留 score 较大的（或合并）
+                if new_key in new_users:
+                    # 保留好感度较高的记录
+                    if val.get("score", 0) > new_users[new_key].get("score", 0):
+                        new_users[new_key] = val
+                else:
+                    new_users[new_key] = val
+                if new_key != old_key:
+                    migrated += 1
+            new_data[group_key] = new_users
+        if migrated > 0:
+            self._write(new_data)
+            logger.info(f"[favorability] 迁移完成：修正了 {migrated} 条历史错误 key")
 
     def _parse_origin(self, event: AstrMessageEvent) -> tuple[str, str]:
         """返回 (group_key, user_id)，每个群/私聊的好感度独立计算"""
@@ -130,6 +159,30 @@ class FavorabilityManager:
 RE_FAV = re.compile(r'\[FAV\s*[:：]\s*([+-]?\d+)\]', re.I)
 RE_EVAL = re.compile(r'\[EVAL\s*[:：]\s*(.*?)\]', re.I)
 RE_STK = re.compile(r'\[STK\s*[:：]\s*(.*?)\]', re.I)
+
+
+# ==================== 工具函数 ====================
+
+def extract_user_id(raw: str) -> str:
+    """从 @ 提及文本中提取纯数字用户ID。
+
+    支持格式：
+      - 纯数字：123456
+      - QQ 提及：@昵称(123456)
+      - 带 @ 前缀：@123456
+    返回提取后的纯数字 ID 字符串。
+    """
+    raw = raw.strip()
+    # 优先从括号中提取数字（QQ @ 提及格式）
+    m = re.search(r'\((\d+)\)', raw)
+    if m:
+        return m.group(1)
+    # 去掉前导 @ 后提取数字
+    cleaned = raw.lstrip('@')
+    m = re.search(r'(\d+)', cleaned)
+    if m:
+        return m.group(1)
+    return raw  # 无法提取时原样返回
 
 
 # ==================== 插件主类 ====================
@@ -395,8 +448,9 @@ class FavorabilityPlugin(Star):
             return
 
         group_key, _ = self._keys(event)
-        await self.db.set_score(group_key, user_id.strip(), score_val)
-        yield event.plain_result(f"✅ 已将用户 {user_id} 的好感度设为 {score_val}。")
+        target_id = extract_user_id(user_id)
+        await self.db.set_score(group_key, target_id, score_val)
+        yield event.plain_result(f"✅ 已将用户 {target_id} 的好感度设为 {score_val}。")
 
     @filter.command("查询好感度")
     async def cmd_admin_query(self, event: AstrMessageEvent, user_id: Optional[str] = None):
@@ -406,7 +460,7 @@ class FavorabilityPlugin(Star):
             target_id = self_id
             label = "你"
         else:
-            target_id = user_id.strip()
+            target_id = extract_user_id(user_id)
             label = f"用户 {target_id}"
         info = self.db.get_user_info(group_key, target_id)
         yield event.plain_result(
@@ -422,8 +476,9 @@ class FavorabilityPlugin(Star):
             yield event.plain_result("❌ 此命令仅限管理员使用。")
             return
         group_key, _ = self._keys(event)
-        await self.db.reset_user(group_key, user_id.strip())
-        yield event.plain_result(f"✅ 用户 {user_id} 的好感度已重置。")
+        target_id = extract_user_id(user_id)
+        await self.db.reset_user(group_key, target_id)
+        yield event.plain_result(f"✅ 用户 {target_id} 的好感度已重置。")
 
     async def terminate(self):
         pass
