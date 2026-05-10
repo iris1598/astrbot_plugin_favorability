@@ -436,32 +436,79 @@ class FavorabilityPlugin(Star):
     # ==================== 管理员指令 ====================
 
     @filter.command("设置好感度")
-    async def cmd_admin_set(self, event: AstrMessageEvent, user_id: str, score: str):
-        """(管理员) 强制设置指定用户好感度。用法: /设置好感度 <用户ID> <分数>"""
+    async def cmd_admin_set(self, event: AstrMessageEvent):
+        """(管理员) 强制设置指定用户好感度。用法: /设置好感度 <@用户> <分数>"""
         if event.role != "admin":
             yield event.plain_result("❌ 此命令仅限管理员使用。")
             return
-        try:
-            score_val = int(score)
-        except ValueError:
-            yield event.plain_result("❌ 分数必须是整数。")
+
+        # 1. 从消息链中提取 @ 的目标用户
+        target_id = None
+        for comp in event.message_obj.message:
+            if isinstance(comp, Comp.At):
+                target_id = str(comp.qq)
+                break
+
+        # 2. 从纯文本中提取分数参数
+        #    注意：message_str 只包含 Plain 文本段，At 组件不参与拼接
+        text = event.message_str
+        parts = text.split()
+
+        if target_id:
+            # 用户通过 @ 指定目标，message_str 中只有命令和分数
+            # parts = ["/设置好感度", "10"]
+            if len(parts) < 2:
+                yield event.plain_result("❌ 用法: /设置好感度 <@用户> <分数>")
+                return
+            try:
+                score_val = int(parts[-1])
+            except ValueError:
+                yield event.plain_result("❌ 分数必须是整数。")
+                return
+        else:
+            # 兼容旧格式：纯文本方式 /设置好感度 用户ID 分数
+            if len(parts) < 3:
+                yield event.plain_result("❌ 用法: /设置好感度 <@用户> <分数>")
+                return
+            target_id = extract_user_id(parts[1])
+            try:
+                score_val = int(parts[2])
+            except ValueError:
+                yield event.plain_result("❌ 分数必须是整数。")
+                return
+
+        if not target_id or not target_id.isdigit():
+            yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
         group_key, _ = self._keys(event)
-        target_id = extract_user_id(user_id)
         await self.db.set_score(group_key, target_id, score_val)
         yield event.plain_result(f"✅ 已将用户 {target_id} 的好感度设为 {score_val}。")
 
     @filter.command("查询好感度")
-    async def cmd_admin_query(self, event: AstrMessageEvent, user_id: Optional[str] = None):
-        """查询好感度。不传 ID 则查自己，传 ID 查指定用户。用法: /查询好感度 [用户ID]"""
+    async def cmd_admin_query(self, event: AstrMessageEvent):
+        """查询好感度。不传 ID 则查自己，传 ID 查指定用户。用法: /查询好感度 [@用户]"""
         group_key, self_id = self._keys(event)
-        if not user_id:
-            target_id = self_id
-            label = "你"
-        else:
-            target_id = extract_user_id(user_id)
+
+        # 优先从消息链提取 @ 目标
+        target_id = None
+        for comp in event.message_obj.message:
+            if isinstance(comp, Comp.At):
+                target_id = str(comp.qq)
+                break
+
+        if target_id:
             label = f"用户 {target_id}"
+        else:
+            # 无 @ 目标，从文本参数提取
+            parts = event.message_str.split()
+            if len(parts) >= 2:
+                target_id = extract_user_id(parts[1])
+                label = f"用户 {target_id}"
+            else:
+                target_id = self_id
+                label = "你"
+
         info = self.db.get_user_info(group_key, target_id)
         yield event.plain_result(
             f"📊 {label}的好感度档案：\n"
@@ -470,13 +517,32 @@ class FavorabilityPlugin(Star):
         )
 
     @filter.command("重置指定好感度")
-    async def cmd_admin_reset(self, event: AstrMessageEvent, user_id: str):
-        """(管理员) 重置指定用户的好感度。用法: /重置指定好感度 <用户ID>"""
+    async def cmd_admin_reset(self, event: AstrMessageEvent):
+        """(管理员) 重置指定用户的好感度。用法: /重置指定好感度 <@用户>"""
         if event.role != "admin":
             yield event.plain_result("❌ 此命令仅限管理员使用。")
             return
+
+        # 从消息链中提取 @ 的用户
+        target_id = None
+        for comp in event.message_obj.message:
+            if isinstance(comp, Comp.At):
+                target_id = str(comp.qq)
+                break
+
+        if target_id is None:
+            # 兼容旧格式：纯文本方式
+            parts = event.message_str.split()
+            if len(parts) < 2:
+                yield event.plain_result("❌ 用法: /重置指定好感度 <@用户>")
+                return
+            target_id = extract_user_id(parts[1])
+
+        if not target_id or not target_id.isdigit():
+            yield event.plain_result("❌ 无法识别用户 ID。")
+            return
+
         group_key, _ = self._keys(event)
-        target_id = extract_user_id(user_id)
         await self.db.reset_user(group_key, target_id)
         yield event.plain_result(f"✅ 用户 {target_id} 的好感度已重置。")
 
