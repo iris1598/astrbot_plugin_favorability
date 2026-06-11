@@ -23,11 +23,11 @@ RE_FAV = re.compile(r"\[FAV\s*[:：]\s*([+-]?\d+)\]", re.IGNORECASE)
 
 # 增强版 EVAL：限 20 字内，过滤掉含有特殊控制字符的内容
 # 匹配 [EVAL:聊得来] [EVAL:有点烦人] 等
-RE_EVAL = re.compile(r"\[EVAL\s*[:：]\s*([^\[\]]{1,20}?)\]", re.IGNORECASE)
+RE_EVAL = re.compile(r"\[EVAL\s*[:：]\s*([^\[\]]{1,30}?)\]", re.IGNORECASE)
 
 # 增强版 STK：分类名仅含中文/英文/数字/下划线，限 20 字符
 # 匹配 [STK:angry] [STK:开心] 等
-RE_STK = re.compile(r"\[STK\s*[:：]\s*(\w{1,20}?)\]", re.IGNORECASE)
+RE_STK = re.compile(r"\[STK\s*[:：]\s*(\w{1,30}?)\]", re.IGNORECASE)
 
 
 # ── 标签验证函数 ──────────────────────────────────────────
