@@ -6,6 +6,7 @@ PIL 图片渲染模块 - FavorabilityRenderer
 """
 
 import math
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -132,11 +133,73 @@ def _hex_to_rgb(hex_color: str) -> tuple:
 class FavorabilityRenderer:
     """好感度图片渲染器。"""
 
-    def __init__(self, render_dir: str | Path):
+    def __init__(self, render_dir: str | Path, cache_max_age: int = 3600):
         if not HAS_PIL:
             raise RuntimeError("Pillow 未安装，无法使用图片渲染。")
         self.render_dir = Path(render_dir)
         self.render_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_max_age = cache_max_age  # 缓存文件最长生周期（秒），默认1小时
+
+    # ── 缓存清理 ───────────────────────────────────────────
+
+    def cleanup_cache(self, max_age: int | None = None) -> tuple[int, int]:
+        """删除过期的渲染缓存 PNG 文件。
+
+        Args:
+            max_age: 文件最长生周期（秒），默认使用 self.cache_max_age。
+
+        Returns:
+            (deleted_count, remaining_count)
+        """
+        max_age = max_age if max_age is not None else self.cache_max_age
+        now = time.time()
+        deleted = 0
+        remaining = 0
+        if not self.render_dir.exists():
+            return (0, 0)
+        for f in self.render_dir.iterdir():
+            if not f.is_file() or not f.name.startswith("fav_") or f.suffix != ".png":
+                continue
+            try:
+                age = now - f.stat().st_mtime
+                if age > max_age:
+                    f.unlink()
+                    deleted += 1
+                else:
+                    remaining += 1
+            except OSError:
+                remaining += 1
+        return (deleted, remaining)
+
+    def get_cache_info(self) -> dict:
+        """获取渲染缓存统计信息。
+
+        Returns:
+            dict: {count, size_bytes, oldest_seconds, dir}
+        """
+        total_size = 0
+        count = 0
+        oldest = 0.0
+        now = time.time()
+        if self.render_dir.exists():
+            for f in self.render_dir.iterdir():
+                if not f.is_file() or not f.name.startswith("fav_") or f.suffix != ".png":
+                    continue
+                try:
+                    stat = f.stat()
+                    total_size += stat.st_size
+                    count += 1
+                    age = now - stat.st_mtime
+                    if age > oldest:
+                        oldest = age
+                except OSError:
+                    pass
+        return {
+            "count": count,
+            "size_bytes": total_size,
+            "oldest_seconds": int(oldest),
+            "dir": str(self.render_dir),
+        }
 
     def _save_img(self, img: "Image.Image") -> str:
         """保存 PIL Image 到文件，返回文件路径。"""
