@@ -5,13 +5,19 @@
 数据结构：
 {
     "group_id_or_private": {
-        "user_id": {"score": int, "eval": str}
+        "user_id": {
+            "score": int,
+            "eval": str,
+            "name": str,
+            "muted_until": float | None   # Unix 时间戳，None 表示未禁言
+        }
     }
 }
 """
 
 import json
 import asyncio
+import time
 import re
 from pathlib import Path
 from typing import Optional
@@ -44,7 +50,13 @@ def extract_user_id(raw: str) -> str:
 class FavorabilityManager:
     """好感度数据管理器，负责 CRUD 和持久化。"""
 
-    DEFAULT_USER = {"score": 0, "eval": "初次见面", "name": ""}
+    DEFAULT_USER = {
+        "score": 0,
+        "eval": "初次见面",
+        "name": "",
+        "muted_until": None,
+    }
+    MUTE_MAX_SECONDS = 300  # 最长禁言 5 分钟
 
     def __init__(self, data_path: Path):
         self.data_file = data_path / "favorability.json"
@@ -85,6 +97,10 @@ class FavorabilityManager:
                 # 填充缺失的 name 字段
                 if isinstance(val, dict) and "name" not in val:
                     val["name"] = ""
+                    patched += 1
+                # 填充缺失的 muted_until 字段
+                if isinstance(val, dict) and "muted_until" not in val:
+                    val["muted_until"] = None
                     patched += 1
                 # 如果同一 group 内新 key 已存在，保留 score 较大的
                 if new_key in new_users:
@@ -164,6 +180,7 @@ class FavorabilityManager:
                     "score": 0,
                     "eval": "记忆已被抹除",
                     "name": user_name or data[group_key][user_id].get("name", ""),
+                    "muted_until": None,
                 }
                 self._write(data)
 
@@ -190,3 +207,59 @@ class FavorabilityManager:
             reverse=not ascending,
         )
         return sorted_list[:top_n]
+
+    # ── 禁言相关方法 ────────────────────────────────────────
+
+    def is_muted(self, group_key: str, user_id: str) -> bool:
+        """检查用户是否处于禁言状态（自动清除已过期）。"""
+        data = self._read()
+        user_data = data.get(group_key, {}).get(user_id)
+        if not user_data:
+            return False
+        muted_until = user_data.get("muted_until")
+        if muted_until is None:
+            return False
+        if time.time() > muted_until:
+            return False  # 已过期
+        return True
+
+    def get_mute_remaining(self, group_key: str, user_id: str) -> float:
+        """获取剩余禁言秒数，未禁言返回 0。"""
+        data = self._read()
+        user_data = data.get(group_key, {}).get(user_id)
+        if not user_data:
+            return 0
+        muted_until = user_data.get("muted_until")
+        if muted_until is None:
+            return 0
+        remaining = muted_until - time.time()
+        return max(0, remaining)
+
+    async def mute_user(
+        self, group_key: str, user_id: str, seconds: int
+    ) -> float:
+        """禁言用户指定秒数（最长 5 分钟）。
+
+        Returns:
+            muted_until 时间戳
+        """
+        seconds = min(max(1, seconds), self.MUTE_MAX_SECONDS)
+        muted_until = time.time() + seconds
+        async with self.lock:
+            data = self._read()
+            if group_key not in data:
+                data[group_key] = {}
+            if user_id not in data[group_key]:
+                data[group_key][user_id] = self.DEFAULT_USER.copy()
+            data[group_key][user_id]["muted_until"] = muted_until
+            self._write(data)
+        return muted_until
+
+    async def unmute_user(self, group_key: str, user_id: str):
+        """解除用户禁言。"""
+        async with self.lock:
+            data = self._read()
+            if group_key in data and user_id in data[group_key]:
+                data[group_key][user_id]["muted_until"] = None
+                self._write(data)
+

@@ -1,14 +1,14 @@
 """
 astrbot_plugin_favorability — 好感度系统插件
 
-AI 根据对话内容自主更新用户好感度与评价，支持表情包回应。
+AI 根据对话内容自主更新用户好感度与评价，支持表情包回应与禁言处罚。
 基于 AstrBot 框架开发。
 
 架构说明：
   main.py          — 插件入口，注册命令，组装子模块
-  models/          — 数据层：FavorabilityManager（好感度 CRUD）
+  models/          — 数据层：FavorabilityManager（好感度 CRUD、禁言管理）
   services/        — 服务层：StickerManager（表情包），PromptManager（提示词）
-  llm/             — LLM 层：LLMHandler（请求注入 + 响应解析）
+  llm/             — LLM 层：LLMHandler（请求注入 + 禁言拦截 + 响应解析）
   commands/        — 指令层：UserCommands（用户指令），AdminCommands（管理员指令）
   render/          — 渲染层：FavorabilityRenderer（PIL 图片渲染）
 """
@@ -33,8 +33,8 @@ from .commands.admin import AdminCommands
 @register(
     "astrbot_plugin_favorability",
     "Iris1598",
-    "好感度系统：AI根据对话内容自主更新用户好感度与评价，支持表情包回应，PIL图片渲染",
-    "v2.0.0",
+    "好感度系统：AI根据对话内容自主更新用户好感度与评价，支持表情包回应、禁言处罚，PIL图片渲染",
+    "v2.1.0",
 )
 class FavorabilityPlugin(Star):
     """好感度系统主插件。"""
@@ -88,6 +88,14 @@ class FavorabilityPlugin(Star):
     @property
     def sticker_enabled(self) -> bool:
         return bool(self.config.get("sticker_enabled", True))
+
+    @property
+    def mute_enabled(self) -> bool:
+        return bool(self.config.get("mute_enabled", True))
+
+    @property
+    def mute_condition(self) -> str:
+        return str(self.config.get("mute_condition", "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）"))
 
     @property
     def system_time_enabled(self) -> bool:
@@ -189,6 +197,16 @@ class FavorabilityPlugin(Star):
     @filter.command("重置指定好感度")
     async def cmd_admin_reset(self, event: AstrMessageEvent):
         async for r in self.admin_cmds.cmd_admin_reset(event):
+            yield r
+
+    @filter.command("禁言")
+    async def cmd_admin_mute(self, event: AstrMessageEvent):
+        async for r in self.admin_cmds.cmd_mute(event):
+            yield r
+
+    @filter.command("解除禁言")
+    async def cmd_admin_unmute(self, event: AstrMessageEvent):
+        async for r in self.admin_cmds.cmd_unmute(event):
             yield r
 
     # ── 生命周期 ───────────────────────────────────────────
