@@ -183,7 +183,6 @@ class PromptManager:
                 lines.append(f"用户ID：{sender_id}")
         # 标签提醒（仅好感度启用时）
         if favorability_enabled and lines:
-            lines.append("")
             lines.append("【好感度系统】请在回复末尾评估本次互动并输出相应标签。")
         if not lines:
             return None
