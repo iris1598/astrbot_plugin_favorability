@@ -22,9 +22,9 @@ from typing import Optional
 # 匹配 [FAV:+5] [FAV:-3] [FAV:0] — 但最后业务层会拦截 0
 RE_FAV = re.compile(r"\[FAV\s*[:：]\s*([+-]?\d+)\]", re.IGNORECASE)
 
-# 增强版 EVAL：限 20 字内，过滤掉含有特殊控制字符的内容
+# 增强版 EVAL：无字数限制，过滤掉含有特殊控制字符的内容
 # 匹配 [EVAL:聊得来] [EVAL:有点烦人] 等
-RE_EVAL = re.compile(r"\[EVAL\s*[:：]\s*([^\[\]]{1,30}?)\]", re.IGNORECASE)
+RE_EVAL = re.compile(r"\[EVAL\s*[:：]\s*([^\[\]]+?)\]", re.IGNORECASE)
 
 # 增强版 STK：分类名仅含中文/英文/数字/下划线，限 20 字符
 # 匹配 [STK:angry] [STK:开心] 等
@@ -44,10 +44,8 @@ def validate_fav_value(raw: int) -> bool:
 
 
 def validate_eval_text(text: str) -> bool:
-    """验证 EVAL 文本是否合法：非空、长度适中、不含敏感字符。"""
+    """验证 EVAL 文本是否合法：非空、不含敏感字符。"""
     if not text or not text.strip():
-        return False
-    if len(text) > 20:
         return False
     # 禁止含有多级方括号嵌套或控制字符
     if re.search(r"[\[\]]", text):
