@@ -539,16 +539,17 @@ class FavorabilityRenderer:
         )
         self._draw_divider(canvas, pad, width - pad, 218)
 
-        left_x, panel_y, left_w, panel_h = pad, 246, 256, 142
+        left_x, panel_y, panel_h = pad, 246, 142
         status_x = left_x
+        relation_x = status_x + 12
         draw.text(
-            (status_x, panel_y + 18),
+            (status_x, panel_y + 17),
             "当前关系",
             font=small_font,
             fill=theme.text_tertiary,
         )
         self._draw_pill(
-            canvas, status_x, panel_y + 43, level["title"], accent, height=42
+            canvas, relation_x - 17, panel_y + 43, level["title"], accent, height=42
         )
         draw.text(
             (status_x, panel_y + 103),
@@ -558,7 +559,7 @@ class FavorabilityRenderer:
         )
 
         # Evaluation remains the calm, frosted-glass counterpart to the status.
-        eval_x, eval_y, eval_w, eval_h = left_x + left_w + 34, panel_y, 342, panel_h
+        eval_x, eval_y, eval_w, eval_h = left_x + 256 + 34, panel_y, 342, panel_h
         self._glass(
             canvas,
             (eval_x, eval_y, eval_x + eval_w, eval_y + eval_h),
@@ -664,8 +665,6 @@ class FavorabilityRenderer:
                 fill=(255, 255, 255),
             )
 
-            primary_y = row_y + 15
-            secondary_y = row_y + 48
             name = str(user_data.get("name") or user_id)
             name_font = _load_font(20, bold=True)
             eval_font = _load_font(15)
@@ -674,13 +673,13 @@ class FavorabilityRenderer:
                 draw, str(user_data.get("eval") or "暂无评价"), eval_font, 254
             )
             draw.text(
-                (pad + 70, primary_y),
+                (pad + 70, row_y + 15),
                 display_name,
                 font=name_font,
                 fill=theme.text_primary,
             )
             draw.text(
-                (pad + 70, secondary_y),
+                (pad + 70, row_y + 48),
                 evaluation,
                 font=eval_font,
                 fill=theme.text_tertiary,
@@ -696,14 +695,15 @@ class FavorabilityRenderer:
             score_font = _load_font(score_size, bold=True)
             score_width = self._text_width(draw, score_text, score_font)
             score_x = width - pad - 22 - score_width
+            score_y = row_y + (row_height - self._line_height(score_font)) // 2
             draw.text(
-                (score_x, primary_y), score_text, font=score_font, fill=level_accent
+                (score_x, score_y), score_text, font=score_font, fill=level_accent
             )
             status_font = _load_font(15, bold=True)
-            status_x = pad + 356
-            status_y = secondary_y
+            status_x = pad + 368
+            status_y = row_y + 31
             draw.ellipse(
-                (status_x, status_y + 5, status_x + 8, status_y + 13),
+                (status_x, status_y + 4, status_x + 8, status_y + 12),
                 fill=level_accent,
             )
             draw.text(
