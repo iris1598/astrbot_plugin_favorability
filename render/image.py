@@ -540,16 +540,9 @@ class FavorabilityRenderer:
         self._draw_divider(canvas, pad, width - pad, 218)
 
         left_x, panel_y, left_w, panel_h = pad, 246, 256, 142
-        self._glass(
-            canvas,
-            (left_x, panel_y, left_x + left_w, panel_y + panel_h),
-            20,
-            border=accent,
-            border_alpha=46 if self.theme_name == "dark" else 38,
-        )
-        status_x = left_x + 22
+        status_x = left_x
         draw.text(
-            (status_x, panel_y + 17),
+            (status_x, panel_y + 18),
             "当前关系",
             font=small_font,
             fill=theme.text_tertiary,
@@ -671,6 +664,8 @@ class FavorabilityRenderer:
                 fill=(255, 255, 255),
             )
 
+            primary_y = row_y + 15
+            secondary_y = row_y + 48
             name = str(user_data.get("name") or user_id)
             name_font = _load_font(20, bold=True)
             eval_font = _load_font(15)
@@ -679,13 +674,13 @@ class FavorabilityRenderer:
                 draw, str(user_data.get("eval") or "暂无评价"), eval_font, 254
             )
             draw.text(
-                (pad + 70, row_y + 15),
+                (pad + 70, primary_y),
                 display_name,
                 font=name_font,
                 fill=theme.text_primary,
             )
             draw.text(
-                (pad + 70, row_y + 48),
+                (pad + 70, secondary_y),
                 evaluation,
                 font=eval_font,
                 fill=theme.text_tertiary,
@@ -702,13 +697,13 @@ class FavorabilityRenderer:
             score_width = self._text_width(draw, score_text, score_font)
             score_x = width - pad - 22 - score_width
             draw.text(
-                (score_x, row_y + 14), score_text, font=score_font, fill=level_accent
+                (score_x, primary_y), score_text, font=score_font, fill=level_accent
             )
             status_font = _load_font(15, bold=True)
-            status_x = pad + 368
-            status_y = row_y + 31
+            status_x = pad + 356
+            status_y = secondary_y
             draw.ellipse(
-                (status_x, status_y + 4, status_x + 8, status_y + 12),
+                (status_x, status_y + 5, status_x + 8, status_y + 13),
                 fill=level_accent,
             )
             draw.text(
