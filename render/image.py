@@ -287,6 +287,23 @@ class FavorabilityRenderer:
             text = text[:-1]
         return text + "…"
 
+    def _fit_font(
+        self,
+        draw,
+        text: str,
+        max_width: int,
+        preferred_size: int,
+        min_size: int,
+        *,
+        bold: bool = False,
+    ):
+        """在指定宽度内选择尽可能大的字号，避免长数字侵入相邻内容。"""
+        for size in range(preferred_size, min_size - 1, -1):
+            font = _load_font(size, bold)
+            if self._text_width(draw, text, font) <= max_width:
+                return font
+        return _load_font(min_size, bold)
+
     def _wrap(self, draw, text: str, font, max_width: int, max_lines: int) -> list[str]:
         lines: list[str] = []
         current = ""
@@ -350,7 +367,7 @@ class FavorabilityRenderer:
 
         # 分数视觉焦点
         score_text = f"{score:+d}" if score else "0"
-        score_font = _load_font(68, True)
+        score_font = self._fit_font(draw, score_text, 260, 68, 28, bold=True)
         score_w = self._text_width(draw, score_text, score_font)
         draw.text((ox + width - 48 - score_w, oy + 78), score_text, font=score_font, fill=accent)
         label_font = _load_font(16, True)
@@ -407,8 +424,24 @@ class FavorabilityRenderer:
         self._surface(canvas, overview, radius=20, strong=True, accent=accent)
         draw.text((overview[0] + 20, overview[1] + 13), "当前榜首", font=_load_font(15, True), fill=_hex(theme["tertiary"]))
         score_label = f"{best_score:+d}" if best_score else "0"
-        draw.text((overview[0] + 20, overview[1] + 34), score_label, font=_load_font(26, True), fill=accent)
-        draw.text((overview[0] + 82, overview[1] + 40), get_level_info(best_score)["title"], font=_load_font(17, True), fill=_hex(theme["secondary"]))
+        level_title = get_level_info(best_score)["title"]
+        level_font = _load_font(15, True)
+        level_w = self._text_width(draw, level_title, level_font)
+        draw.text(
+            (overview[2] - 20 - level_w, overview[1] + 13),
+            level_title,
+            font=level_font,
+            fill=_hex(theme["secondary"]),
+        )
+        overview_score_font = self._fit_font(
+            draw, score_label, overview[2] - overview[0] - 40, 27, 14, bold=True
+        )
+        draw.text(
+            (overview[0] + 20, overview[1] + 37),
+            score_label,
+            font=overview_score_font,
+            fill=accent,
+        )
 
         # 表头
         header_y = oy + 158
@@ -419,6 +452,7 @@ class FavorabilityRenderer:
 
         medals = ["01", "02", "03"]
         medal_colors = [_hex("#FFB547"), _hex("#9DA9BE"), _hex("#C98561")]
+        medal_text_colors = [_hex("#3B2A08"), _hex("#FFFFFF"), _hex("#FFFFFF")]
         y = header_y + 54
         for index, (uid, data) in enumerate(rows):
             score = int(data.get("score", 0))
@@ -433,9 +467,15 @@ class FavorabilityRenderer:
             rank_box = (ox + 58, y + 13, ox + 100, y + 43)
             rank_color = medal_colors[index] if index < 3 else _hex(theme["tertiary"])
             if index < 3:
-                ImageDraw.Draw(canvas).rounded_rectangle(rank_box, radius=15, fill=(*rank_color, 28), outline=(*rank_color, 80), width=1)
+                # 前三名序号使用完全不透明的实色底，避免客户端合成透明 PNG
+                # 时出现底色发灰、文字对比度不稳定等问题。
+                draw.rounded_rectangle(
+                    rank_box,
+                    radius=15,
+                    fill=(*rank_color, 255),
+                )
             rank_text_color = (
-                _hex(theme["text"]) if index < 3 else rank_color
+                medal_text_colors[index] if index < 3 else rank_color
             )
             self._center_text(
                 draw,
@@ -449,10 +489,10 @@ class FavorabilityRenderer:
             name = str(data.get("name") or uid)
             draw.text((ox + 150, y + 13), self._ellipsize(draw, name, name_font, 245), font=name_font, fill=_hex(theme["text"]))
             eval_font = _load_font(16)
-            evaluation = self._ellipsize(draw, str(data.get("eval") or "暂无评价"), eval_font, 190)
+            evaluation = self._ellipsize(draw, str(data.get("eval") or "暂无评价"), eval_font, 176)
             draw.text((ox + 430, y + 16), evaluation, font=eval_font, fill=_hex(theme["secondary"]))
             score_text = f"{score:+d}" if score else "0"
-            score_font = _load_font(20, True)
+            score_font = self._fit_font(draw, score_text, 82, 20, 12, bold=True)
             score_w = self._text_width(draw, score_text, score_font)
             draw.text((ox + width - 54 - score_w, y + 12), score_text, font=score_font, fill=level_color)
             y += row_h
