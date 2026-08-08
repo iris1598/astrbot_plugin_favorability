@@ -1,9 +1,8 @@
-"""Modern Pillow renderers for favorability cards and rankings.
+"""好感度图片渲染模块。
 
-The visual language mirrors the two Rika Share themes: a rounded gradient card,
-subtle accent glow, soft shadow, and frosted-glass content surfaces.  Both
-``dark`` and ``light`` themes use the same layout so switching themes only
-changes presentation, never the information shown to users.
+视觉风格沿用 astrbot_plugin_rika_share 的现代分享卡片语言：圆角渐变卡片、
+柔和品牌色光晕、半透明信息胶囊、细描边与克制阴影，并提供 light / dark
+两套主题。全部使用 Pillow 绘制，不依赖浏览器或网络资源。
 """
 
 from __future__ import annotations
@@ -11,8 +10,6 @@ from __future__ import annotations
 import math
 import time
 import uuid
-from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 from astrbot.api import logger
@@ -21,194 +18,126 @@ try:
     from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
     HAS_PIL = True
-except ImportError:  # pragma: no cover - depends on optional dependency
+except ImportError:  # pragma: no cover
     HAS_PIL = False
     Image = ImageDraw = ImageFilter = ImageFont = None
-    logger.warning(
-        "[favorability] Pillow is not installed; image rendering is unavailable."
-    )
+    logger.warning("[favorability] Pillow 未安装，图片渲染功能不可用。")
 
 
-_FONT_CANDIDATES = (
-    "C:/Windows/Fonts/msyh.ttc",
-    "C:/Windows/Fonts/msyhbd.ttc",
-    "C:/Windows/Fonts/simhei.ttf",
-    "C:/Windows/Fonts/deng.ttf",
-    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-    "/System/Library/Fonts/PingFang.ttc",
-    "/System/Library/Fonts/STHeiti Light.ttc",
-)
-
-
-@lru_cache(maxsize=32)
-def _load_font(size: int, bold: bool = False):
-    """Load an available CJK-capable font and fall back to Pillow's default."""
-    candidates = _FONT_CANDIDATES
-    if bold:
-        candidates = (
-            tuple(
-                path
-                for path in candidates
-                if "bd" in path.lower() or "bold" in path.lower()
-            )
-            + candidates
-        )
-    for path in candidates:
-        if not Path(path).is_file():
-            continue
-        try:
-            return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
-
-
-def _hex_to_rgb(value: str) -> tuple[int, int, int]:
-    """Convert a CSS hexadecimal colour to an RGB tuple."""
-    value = value.lstrip("#")
-    if len(value) == 3:
-        value = "".join(char * 2 for char in value)
-    return tuple(int(value[index : index + 2], 16) for index in (0, 2, 4))
-
-
-def _with_alpha(rgb: tuple[int, int, int], alpha: int) -> tuple[int, int, int, int]:
-    return (*rgb, alpha)
-
-
-def _mix(
-    first: tuple[int, int, int], second: tuple[int, int, int], ratio: float
-) -> tuple[int, int, int]:
-    """Mix two RGB colours using a ratio between zero and one."""
-    return tuple(
-        round(first[index] + (second[index] - first[index]) * ratio)
-        for index in range(3)
-    )
-
-
-@dataclass(frozen=True)
-class _Theme:
-    gradient_top: tuple[int, int, int]
-    gradient_bottom: tuple[int, int, int]
-    border: tuple[int, int, int]
-    text_primary: tuple[int, int, int]
-    text_secondary: tuple[int, int, int]
-    text_tertiary: tuple[int, int, int]
-    frost: tuple[int, int, int]
-    shadow_alpha: int
-    glow_alpha: int
-    frost_alpha: int
-    frost_border_alpha: int
-    border_alpha: int
-
-
-# These values intentionally match the dark and light colour language used by
-# astrbot_plugin_rika_share's modern sharing cards.
-_THEMES = {
-    "dark": _Theme(
-        gradient_top=_hex_to_rgb("#242B3F"),
-        gradient_bottom=_hex_to_rgb("#12161F"),
-        border=_hex_to_rgb("#FFFFFF"),
-        text_primary=_hex_to_rgb("#F5F7FC"),
-        text_secondary=_hex_to_rgb("#AEB6C8"),
-        text_tertiary=_hex_to_rgb("#7B8598"),
-        frost=_hex_to_rgb("#FFFFFF"),
-        shadow_alpha=130,
-        glow_alpha=30,
-        frost_alpha=14,
-        frost_border_alpha=26,
-        border_alpha=24,
-    ),
-    "light": _Theme(
-        gradient_top=_hex_to_rgb("#FFFFFF"),
-        gradient_bottom=_hex_to_rgb("#F1F4F9"),
-        border=_hex_to_rgb("#1B2233"),
-        text_primary=_hex_to_rgb("#1A2130"),
-        text_secondary=_hex_to_rgb("#55607A"),
-        text_tertiary=_hex_to_rgb("#8C95A9"),
-        frost=_hex_to_rgb("#1B2233"),
-        shadow_alpha=55,
-        glow_alpha=16,
-        frost_alpha=10,
-        frost_border_alpha=20,
-        border_alpha=14,
-    ),
+_FONT_CANDIDATES = {
+    "regular": [
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/deng.ttf",
+        "C:/Windows/Fonts/simhei.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+    ],
+    "bold": [
+        "C:/Windows/Fonts/msyhbd.ttc",
+        "C:/Windows/Fonts/dengb.ttf",
+        "C:/Windows/Fonts/simhei.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+    ],
 }
 
 
-def get_level_info(score: int) -> dict[str, str]:
-    """Return the favorability label, accent colour, and description."""
+def _find_font(bold: bool = False) -> str | None:
+    key = "bold" if bold else "regular"
+    for candidate in _FONT_CANDIDATES[key]:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+_FONT_PATHS = {"regular": _find_font(), "bold": _find_font(True)}
+_FONT_CACHE: dict[tuple[int, bool], "ImageFont.FreeTypeFont"] = {}
+
+
+def _load_font(size: int, bold: bool = False) -> "ImageFont.FreeTypeFont":
+    key = (size, bold)
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+    path = _FONT_PATHS["bold" if bold else "regular"] or _FONT_PATHS["regular"]
+    try:
+        font = ImageFont.truetype(path, size=size) if path else ImageFont.load_default()
+    except Exception:
+        font = ImageFont.load_default()
+    _FONT_CACHE[key] = font
+    return font
+
+
+def _hex(value: str) -> tuple[int, int, int]:
+    value = value.lstrip("#")
+    if len(value) == 3:
+        value = "".join(ch * 2 for ch in value)
+    return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def _rgba(value: str | tuple[int, int, int], alpha: int = 255) -> tuple[int, int, int, int]:
+    rgb = _hex(value) if isinstance(value, str) else value
+    return (*rgb, alpha)
+
+
+def _mix(a: tuple[int, int, int], b: tuple[int, int, int], ratio: float) -> tuple[int, int, int]:
+    return tuple(round(a[i] + (b[i] - a[i]) * ratio) for i in range(3))
+
+
+def get_level_info(score: int) -> dict:
+    """根据分数返回好感度等级信息。"""
     if score >= 70:
-        return {
-            "title": "挚爱",
-            "color": "#FF4757",
-            "bg": "#FFE8EA",
-            "description": "爱人级，关系已不分彼此",
-        }
+        return {"title": "挚爱", "color": "#FF5C7A", "description": "爱人级 · 关系已不分彼此"}
     if score >= 50:
-        return {
-            "title": "挚友",
-            "color": "#FF6348",
-            "bg": "#FFE4DB",
-            "description": "挚友 / 恋人级，热情主动",
-        }
+        return {"title": "挚友", "color": "#FF7A5C", "description": "挚友级 · 热情而主动"}
     if score >= 21:
-        return {
-            "title": "熟人",
-            "color": "#2ED573",
-            "bg": "#E4FCEF",
-            "description": "熟人级，积极友好",
-        }
+        return {"title": "熟人", "color": "#36C98F", "description": "熟人级 · 积极友好"}
     if score >= -20:
-        return {
-            "title": "路人",
-            "color": "#747D8C",
-            "bg": "#F0F0F1",
-            "description": "陌生人级，礼貌中立",
-        }
+        return {"title": "路人", "color": "#8290A8", "description": "陌生人级 · 礼貌中立"}
     if score >= -50:
-        return {
-            "title": "生厌",
-            "color": "#FFA502",
-            "bg": "#FFF3E0",
-            "description": "反感和警惕，厌恶这类行为",
-        }
+        return {"title": "生厌", "color": "#F2A93B", "description": "反感警惕 · 保持距离"}
     if score >= -70:
-        return {
-            "title": "憎恶",
-            "color": "#FF4757",
-            "bg": "#FFEBEE",
-            "description": "极度厌恶，会直接表达不满",
-        }
-    return {
-        "title": "仇敌",
-        "color": "#2F3542",
-        "bg": "#E8E8E8",
-        "description": "光是看到就令人不快",
-    }
+        return {"title": "憎恶", "color": "#F05B68", "description": "极度厌恶 · 关系紧张"}
+    return {"title": "仇敌", "color": "#8B5CF6", "description": "敌对状态 · 已降至冰点"}
 
 
-def _format_score(score: int, max_digits: int = 12) -> str:
-    """Keep unbounded scores legible without changing their stored value.
-
-    Scores within ``max_digits`` render exactly. Larger values use scientific
-    notation only in the image, while storage and ranking continue to use the
-    original integer.
-    """
-    text = f"{score:+d}" if score else "0"
-    if len(text) <= max_digits:
-        return text
-    digits = str(abs(score))
-    sign = "-" if score < 0 else "+"
-    return f"{sign}{digits[0]}.{digits[1:4]}e+{len(digits) - 1}"
+_THEMES = {
+    "dark": {
+        "top": "#242B3F",
+        "bottom": "#12161F",
+        "surface": "#FFFFFF",
+        "text": "#F5F7FC",
+        "secondary": "#AEB6C8",
+        "tertiary": "#78849A",
+        "border": "#FFFFFF",
+        "shadow": 135,
+        "glow": 34,
+        "surface_alpha": 14,
+        "surface_strong": 22,
+        "border_alpha": 25,
+    },
+    "light": {
+        "top": "#FFFFFF",
+        "bottom": "#F1F4F9",
+        "surface": "#182033",
+        "text": "#1A2130",
+        "secondary": "#55607A",
+        "tertiary": "#8C95A9",
+        "border": "#1B2233",
+        "shadow": 48,
+        "glow": 18,
+        "surface_alpha": 9,
+        "surface_strong": 14,
+        "border_alpha": 16,
+    },
+}
 
 
 class FavorabilityRenderer:
-    """Render favorability information with a selectable Rika-style theme."""
-
-    CARD_RADIUS = 30
-    CARD_SHADOW_INSET = 10
-    CARD_SHADOW_BLUR = 16
+    """现代双主题好感度图片渲染器。"""
 
     def __init__(
         self,
@@ -216,42 +145,29 @@ class FavorabilityRenderer:
         cache_max_age: int = 3600,
         theme: str = "dark",
     ):
-        """Create a renderer.
-
-        Args:
-            render_dir: Directory used for temporary rendered images.
-            cache_max_age: Maximum cache lifetime in seconds.
-            theme: Either ``dark`` or ``light``. Invalid values use ``dark``.
-        """
         if not HAS_PIL:
-            raise RuntimeError("Pillow is required for favorability image rendering")
+            raise RuntimeError("Pillow 未安装，无法使用图片渲染。")
         self.render_dir = Path(render_dir)
         self.render_dir.mkdir(parents=True, exist_ok=True)
         self.cache_max_age = cache_max_age
         self.theme_name = theme if theme in _THEMES else "dark"
 
     @property
-    def theme(self) -> _Theme:
-        """Return the currently selected visual theme."""
+    def theme(self) -> dict:
         return _THEMES[self.theme_name]
 
     def cleanup_cache(self, max_age: int | None = None) -> tuple[int, int]:
-        """Delete expired favorability render-cache images.
-
-        Args:
-            max_age: Cache lifetime in seconds. Defaults to ``cache_max_age``.
-
-        Returns:
-            A tuple of deleted and remaining image counts.
-        """
         max_age = self.cache_max_age if max_age is None else max_age
         now = time.time()
-        deleted = 0
-        remaining = 0
-        for path in self.render_dir.glob("fav_*.png"):
+        deleted = remaining = 0
+        if not self.render_dir.exists():
+            return 0, 0
+        for file in self.render_dir.iterdir():
+            if not file.is_file() or not file.name.startswith("fav_") or file.suffix != ".png":
+                continue
             try:
-                if now - path.stat().st_mtime > max_age:
-                    path.unlink()
+                if now - file.stat().st_mtime > max_age:
+                    file.unlink()
                     deleted += 1
                 else:
                     remaining += 1
@@ -259,331 +175,205 @@ class FavorabilityRenderer:
                 remaining += 1
         return deleted, remaining
 
-    def get_cache_info(self) -> dict[str, int | str]:
-        """Return cache statistics for the admin cleanup command."""
-        paths = list(self.render_dir.glob("fav_*.png"))
+    def get_cache_info(self) -> dict:
         now = time.time()
-        size_bytes = 0
-        oldest_seconds = 0
-        for path in paths:
+        files = []
+        if self.render_dir.exists():
+            files = [
+                f for f in self.render_dir.iterdir()
+                if f.is_file() and f.name.startswith("fav_") and f.suffix == ".png"
+            ]
+        stats = []
+        for file in files:
             try:
-                stat = path.stat()
-                size_bytes += stat.st_size
-                oldest_seconds = max(oldest_seconds, int(now - stat.st_mtime))
+                stats.append(file.stat())
             except OSError:
-                continue
+                pass
         return {
-            "count": len(paths),
-            "size_bytes": size_bytes,
-            "oldest_seconds": oldest_seconds,
+            "count": len(stats),
+            "size_bytes": sum(item.st_size for item in stats),
+            "oldest_seconds": int(max((now - item.st_mtime for item in stats), default=0)),
             "dir": str(self.render_dir),
         }
 
-    def _save_img(self, image) -> str:
+    def _save_img(self, img: "Image.Image") -> str:
         path = self.render_dir / f"fav_{uuid.uuid4().hex[:12]}.png"
-        image.save(path, format="PNG")
+        # 保留圆角卡片外侧与投影区域的 Alpha 通道，让聊天客户端
+        # 能直接叠加在任意会话背景上，而不是显示为黑色矩形底。
+        img.convert("RGBA").save(path, format="PNG", optimize=True)
         return str(path)
 
     @staticmethod
-    def _gradient(
-        size: tuple[int, int], top: tuple[int, int, int], bottom: tuple[int, int, int]
-    ):
+    def _gradient(size: tuple[int, int], top: str, bottom: str) -> "Image.Image":
         width, height = size
-        gradient = Image.new("RGB", (1, max(height, 1)))
+        top_rgb, bottom_rgb = _hex(top), _hex(bottom)
+        strip = Image.new("RGB", (1, max(height, 1)))
         for y in range(max(height, 1)):
-            ratio = y / max(height - 1, 1)
-            gradient.putpixel((0, y), _mix(top, bottom, ratio))
-        return gradient.resize((width, height))
+            strip.putpixel((0, y), _mix(top_rgb, bottom_rgb, y / max(height - 1, 1)))
+        return strip.resize((width, height)).convert("RGBA")
 
     @staticmethod
-    def _radial_glow(width: int, height: int, accent: tuple[int, int, int], alpha: int):
-        glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        ImageDraw.Draw(glow).ellipse(
-            (-width // 3, -height // 2, width // 2, height // 2),
-            fill=_with_alpha(accent, alpha),
-        )
-        return glow.filter(ImageFilter.GaussianBlur(max(width, height) // 5))
+    def _radial_glow(size: tuple[int, int], color: tuple[int, int, int], alpha: int) -> "Image.Image":
+        width, height = size
+        glow_size = max(width, height)
+        dot = Image.new("RGBA", (glow_size, glow_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(dot)
+        radius = glow_size // 3
+        cx, cy = glow_size // 2, glow_size // 2
+        draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=(*color, alpha))
+        return dot.filter(ImageFilter.GaussianBlur(max(30, radius // 2)))
 
-    def _base_canvas(self, width: int, card_height: int, accent: tuple[int, int, int]):
-        """Create the shared gradient, glow, shadow, and rounded-card layer."""
-        total_height = card_height + 14
+    def _base_card(self, width: int, height: int, accent: tuple[int, int, int]) -> "Image.Image":
         theme = self.theme
-        canvas = Image.new("RGBA", (width, total_height), (0, 0, 0, 0))
+        margin = 24
+        canvas = Image.new("RGBA", (width + margin * 2, height + margin * 2), (0, 0, 0, 0))
         shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         ImageDraw.Draw(shadow).rounded_rectangle(
-            (
-                self.CARD_SHADOW_INSET,
-                self.CARD_SHADOW_INSET,
-                width - self.CARD_SHADOW_INSET,
-                total_height - 2,
-            ),
-            radius=self.CARD_RADIUS + 2,
-            fill=(0, 0, 0, theme.shadow_alpha),
+            (margin + 8, margin + 10, margin + width - 8, margin + height - 5),
+            radius=32,
+            fill=(0, 0, 0, theme["shadow"]),
         )
-        canvas.alpha_composite(
-            shadow.filter(ImageFilter.GaussianBlur(self.CARD_SHADOW_BLUR))
-        )
+        canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(16)))
 
-        card = self._gradient(
-            (width, card_height), theme.gradient_top, theme.gradient_bottom
-        ).convert("RGBA")
-        card.alpha_composite(
-            self._radial_glow(width, round(width * 0.9), accent, theme.glow_alpha)
-        )
-        mask = Image.new("L", (width, card_height), 0)
-        ImageDraw.Draw(mask).rounded_rectangle(
-            (0, 0, width - 1, card_height - 1), radius=self.CARD_RADIUS, fill=255
-        )
+        card = self._gradient((width, height), theme["top"], theme["bottom"])
+        glow = self._radial_glow((width, height), accent, theme["glow"])
+        card.alpha_composite(glow, (width - glow.width // 2, -glow.height // 2))
+        mask = Image.new("L", (width, height), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=30, fill=255)
         card.putalpha(mask)
-        canvas.alpha_composite(card)
+        canvas.alpha_composite(card, (margin, margin))
 
-        border = Image.new("RGBA", (width, card_height), (0, 0, 0, 0))
+        border = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
         ImageDraw.Draw(border).rounded_rectangle(
-            (0, 0, width - 1, card_height - 1),
-            radius=self.CARD_RADIUS,
-            outline=_with_alpha(theme.border, theme.border_alpha),
+            (margin, margin, margin + width - 1, margin + height - 1),
+            radius=30,
+            outline=_rgba(theme["border"], theme["border_alpha"]),
             width=1,
         )
         canvas.alpha_composite(border)
         return canvas
 
-    def _glass(
+    def _surface(
         self,
-        canvas,
+        canvas: "Image.Image",
         box: tuple[int, int, int, int],
-        radius: int,
         *,
-        tint: tuple[int, int, int] | None = None,
-        tint_alpha: int | None = None,
-        border: tuple[int, int, int] | None = None,
-        border_alpha: int | None = None,
+        radius: int = 18,
+        strong: bool = False,
+        accent: tuple[int, int, int] | None = None,
     ) -> None:
-        """Draw a frosted-glass rounded surface on an existing canvas."""
-        x0, y0, x1, y1 = box
-        if x1 <= x0 or y1 <= y0:
-            return
         theme = self.theme
-        region = canvas.crop(box).filter(ImageFilter.GaussianBlur(6))
-        tint = theme.frost if tint is None else tint
-        tint_alpha = theme.frost_alpha if tint_alpha is None else tint_alpha
-        border = theme.frost if border is None else border
-        border_alpha = (
-            theme.frost_border_alpha if border_alpha is None else border_alpha
+        layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        alpha = theme["surface_strong"] if strong else theme["surface_alpha"]
+        fill = accent if accent else _hex(theme["surface"])
+        ImageDraw.Draw(layer).rounded_rectangle(
+            box,
+            radius=radius,
+            fill=(*fill, alpha if not accent else max(alpha, 18)),
+            outline=_rgba(theme["border"], theme["border_alpha"]),
+            width=1,
         )
-        region.alpha_composite(
-            Image.new("RGBA", region.size, _with_alpha(tint, tint_alpha))
-        )
-        mask = Image.new("L", region.size, 0)
-        ImageDraw.Draw(mask).rounded_rectangle(
-            (0, 0, region.width - 1, region.height - 1), radius=radius, fill=255
-        )
-        canvas.paste(region, (x0, y0), mask)
-
-        if border_alpha:
-            border_layer = Image.new("RGBA", region.size, (0, 0, 0, 0))
-            ImageDraw.Draw(border_layer).rounded_rectangle(
-                (0, 0, region.width - 1, region.height - 1),
-                radius=radius,
-                outline=_with_alpha(border, border_alpha),
-                width=1,
-            )
-            canvas.alpha_composite(border_layer, (x0, y0))
+        canvas.alpha_composite(layer)
 
     @staticmethod
-    def _line_height(font) -> int:
-        ascent, descent = font.getmetrics()
-        return ascent + descent
-
-    @staticmethod
-    def _text_width(draw, text: str, font) -> int:
+    def _text_width(draw: "ImageDraw.ImageDraw", text: str, font: "ImageFont.FreeTypeFont") -> int:
         return math.ceil(draw.textlength(text, font=font))
 
-    def _truncate(self, draw, text: str, font, max_width: int) -> str:
-        """Fit a single-line string in the given width, adding an ellipsis."""
+    def _ellipsize(self, draw, text: str, font, max_width: int) -> str:
+        text = str(text or "")
         if self._text_width(draw, text, font) <= max_width:
             return text
-        shortened = text
-        while shortened and self._text_width(draw, shortened + "…", font) > max_width:
-            shortened = shortened[:-1]
-        return f"{shortened}…" if shortened else "…"
+        while text and self._text_width(draw, text + "…", font) > max_width:
+            text = text[:-1]
+        return text + "…"
 
     def _wrap(self, draw, text: str, font, max_width: int, max_lines: int) -> list[str]:
-        """Wrap CJK-friendly text by glyph width and cap it at ``max_lines``."""
-        text = text or "暂无"
         lines: list[str] = []
-        for paragraph in text.replace("\r", "").split("\n"):
-            current = ""
-            for char in paragraph or " ":
-                if current and self._text_width(draw, current + char, font) > max_width:
-                    lines.append(current)
-                    current = char
-                else:
-                    current += char
-            if current:
+        current = ""
+        for char in str(text or "暂无评价"):
+            if char == "\n":
                 lines.append(current)
-        if len(lines) <= max_lines:
-            return lines
-        return lines[: max_lines - 1] + [
-            self._truncate(draw, lines[max_lines - 1], font, max_width)
-        ]
+                current = ""
+            elif self._text_width(draw, current + char, font) <= max_width:
+                current += char
+            else:
+                lines.append(current)
+                current = char
+            if len(lines) == max_lines:
+                break
+        if len(lines) < max_lines and current:
+            lines.append(current)
+        if len(lines) == max_lines:
+            consumed = "".join(lines)
+            raw = str(text or "暂无评价").replace("\n", "")
+            if len(consumed) < len(raw):
+                lines[-1] = self._ellipsize(draw, lines[-1] + raw[len(consumed):], font, max_width)
+        return lines or ["暂无评价"]
 
-    def _draw_pill(
-        self,
-        canvas,
-        x: int,
-        y: int,
-        text: str,
-        accent: tuple[int, int, int],
-        *,
-        height: int = 40,
-        text_color: tuple[int, int, int] | None = None,
-        dot: bool = True,
-    ) -> int:
-        """Draw a glass pill and return its width."""
-        draw = ImageDraw.Draw(canvas)
-        font = _load_font(18, bold=True)
-        text_color = self.theme.text_primary if text_color is None else text_color
-        width = self._text_width(draw, text, font) + 34 + (20 if dot else 0)
-        self._glass(canvas, (x, y, x + width, y + height), height // 2)
-        text_x = x + 17
-        if dot:
-            dot_y = y + height // 2
-            draw.ellipse((text_x, dot_y - 5, text_x + 10, dot_y + 5), fill=accent)
-            text_x += 18
-        draw.text(
-            (text_x, y + (height - self._line_height(font)) // 2),
-            text,
-            font=font,
-            fill=text_color,
-        )
-        return width
-
-    def _draw_divider(self, canvas, x0: int, x1: int, y: int) -> None:
-        layer = Image.new("RGBA", (x1 - x0, 1), (0, 0, 0, 0))
-        ImageDraw.Draw(layer).line(
-            (0, 0, x1 - x0, 0),
-            fill=_with_alpha(
-                self.theme.border, 26 if self.theme_name == "dark" else 20
-            ),
-        )
-        canvas.alpha_composite(layer, (x0, y))
-
-    def _draw_footer(self, canvas, card_width: int, y: int, accent) -> None:
-        """Draw the small branded footer shared by all rendered images."""
-        draw = ImageDraw.Draw(canvas)
-        font = _load_font(17, bold=True)
-        text = "好感度系统"
-        text_width = self._text_width(draw, text, font)
-        dot_x = card_width - 44 - text_width - 18
-        dot_y = y + self._line_height(font) // 2
-        draw.ellipse((dot_x, dot_y - 5, dot_x + 10, dot_y + 5), fill=accent)
-        draw.text((dot_x + 18, y), text, font=font, fill=accent)
+    @staticmethod
+    def _center_text(draw, box, text, font, fill) -> None:
+        x0, y0, x1, y1 = box
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text((x0 + (x1 - x0 - tw) / 2, y0 + (y1 - y0 - th) / 2 - bbox[1]), text, font=font, fill=fill)
 
     def render_favorability_card(
-        self, user_name: str, user_id: str, score: int, evaluation: str
+        self,
+        user_name: str,
+        user_id: str,
+        score: int,
+        evaluation: str,
     ) -> str:
-        """Render a compact two-column favorability profile card."""
-        width, card_height, pad = 720, 446, 44
+        """渲染个人好感度档案卡。"""
+        width, height, margin = 720, 420, 24
         level = get_level_info(score)
-        accent = _hex_to_rgb(level["color"])
-        if self.theme_name == "dark" and sum(accent) < 260:
-            accent = _mix(accent, (255, 255, 255), 0.45)
-        canvas = self._base_canvas(width, card_height, accent)
+        accent = _hex(level["color"])
+        canvas = self._base_card(width, height, accent)
         draw = ImageDraw.Draw(canvas)
         theme = self.theme
+        ox, oy = margin, margin
 
-        # Keep the original compact Rika-style composition: identity and score
-        # at the top, relationship status and impression side by side below.
-        bar = Image.new("RGBA", (64, 6), (0, 0, 0, 0))
-        for x in range(64):
-            ImageDraw.Draw(bar).line(
-                (x, 0, x, 5),
-                fill=_with_alpha(_mix(accent, (255, 255, 255), x / 100), 255),
-            )
-        canvas.alpha_composite(bar, (pad, 34))
-        self._draw_pill(canvas, pad, 58, "好感度档案", accent)
+        # 顶部品牌短横条与标签
+        draw.rounded_rectangle((ox + 42, oy + 34, ox + 108, oy + 40), radius=3, fill=accent)
+        badge_font = _load_font(18, True)
+        badge_box = (ox + 42, oy + 60, ox + 126, oy + 96)
+        self._surface(canvas, badge_box, radius=18, accent=accent)
+        self._center_text(draw, badge_box, level["title"], badge_font, accent)
+        draw.text((ox + 140, oy + 67), "FAVORABILITY PROFILE", font=_load_font(15, True), fill=_hex(theme["tertiary"]))
 
-        name_font = _load_font(38, bold=True)
-        id_font = _load_font(19)
-        body_font = _load_font(19)
-        small_font = _load_font(16)
+        # 用户信息
+        name_font = _load_font(34, True)
+        name = self._ellipsize(draw, user_name or f"用户 {user_id}", name_font, 390)
+        draw.text((ox + 42, oy + 118), name, font=name_font, fill=_hex(theme["text"]))
+        id_font = _load_font(17)
+        draw.text((ox + 43, oy + 164), f"ID  ·  {user_id}", font=id_font, fill=_hex(theme["tertiary"]))
 
-        display_name = self._truncate(draw, user_name or "未知用户", name_font, 365)
-        draw.text((pad, 121), display_name, font=name_font, fill=theme.text_primary)
-        draw.text((pad, 174), f"ID  {user_id}", font=id_font, fill=theme.text_tertiary)
+        # 分数视觉焦点
+        score_text = f"{score:+d}" if score else "0"
+        score_font = _load_font(68, True)
+        score_w = self._text_width(draw, score_text, score_font)
+        draw.text((ox + width - 48 - score_w, oy + 78), score_text, font=score_font, fill=accent)
+        label_font = _load_font(16, True)
+        label = "好 感 度"
+        label_w = self._text_width(draw, label, label_font)
+        draw.text((ox + width - 49 - label_w, oy + 158), label, font=label_font, fill=_hex(theme["tertiary"]))
 
-        score_caption_font = _load_font(18, bold=True)
-        score_text = _format_score(score)
-        score_size = 74
-        while score_size > 32:
-            score_font = _load_font(score_size, bold=True)
-            if self._text_width(draw, score_text, score_font) <= 220:
-                break
-            score_size -= 4
-        score_font = _load_font(score_size, bold=True)
-        score_width = self._text_width(draw, score_text, score_font)
-        score_x = width - pad - score_width
-        draw.text(
-            (score_x, 95),
-            score_text,
-            font=score_font,
-            fill=accent,
-            stroke_width=1,
-            stroke_fill=_mix(accent, theme.gradient_bottom, 0.55),
-        )
-        draw.text(
-            (width - pad - self._text_width(draw, "好感度", score_caption_font), 176),
-            "好感度",
-            font=score_caption_font,
-            fill=theme.text_tertiary,
-        )
-        self._draw_divider(canvas, pad, width - pad, 218)
+        # 评价区
+        panel = (ox + 42, oy + 210, ox + width - 42, oy + 342)
+        self._surface(canvas, panel, radius=22, strong=True)
+        draw.rounded_rectangle((panel[0] + 18, panel[1] + 22, panel[0] + 24, panel[3] - 22), radius=3, fill=accent)
+        draw.text((panel[0] + 42, panel[1] + 20), "她的评价", font=_load_font(16, True), fill=_hex(theme["tertiary"]))
+        eval_font = _load_font(22)
+        for index, line in enumerate(self._wrap(draw, evaluation, eval_font, panel[2] - panel[0] - 76, 2)):
+            draw.text((panel[0] + 42, panel[1] + 51 + index * 32), line, font=eval_font, fill=_hex(theme["text"]))
 
-        left_x, panel_y, panel_h = pad, 246, 142
-        status_x = left_x
-        relation_x = status_x + 12
-        draw.text(
-            (status_x, panel_y + 17),
-            "当前关系",
-            font=small_font,
-            fill=theme.text_tertiary,
-        )
-        self._draw_pill(
-            canvas, relation_x - 17, panel_y + 43, level["title"], accent, height=42
-        )
-        draw.text(
-            (status_x, panel_y + 103),
-            level["description"],
-            font=small_font,
-            fill=theme.text_secondary,
-        )
-
-        # Evaluation remains the calm, frosted-glass counterpart to the status.
-        eval_x, eval_y, eval_w, eval_h = left_x + 256 + 34, panel_y, 342, panel_h
-        self._glass(
-            canvas,
-            (eval_x, eval_y, eval_x + eval_w, eval_y + eval_h),
-            20,
-            border=accent,
-            border_alpha=46 if self.theme_name == "dark" else 38,
-        )
-        draw = ImageDraw.Draw(canvas)
-        draw.text(
-            (eval_x + 22, eval_y + 18),
-            "她对你的印象",
-            font=small_font,
-            fill=theme.text_tertiary,
-        )
-        eval_lines = self._wrap(draw, evaluation, body_font, eval_w - 44, 2)
-        line_y = eval_y + 48
-        for line in eval_lines:
-            draw.text(
-                (eval_x + 22, line_y), line, font=body_font, fill=theme.text_primary
-            )
-            line_y += self._line_height(body_font) + 5
-
-        self._draw_divider(canvas, pad, width - pad, 404)
-        self._draw_footer(canvas, width, 412, accent)
+        # 页脚说明与水印
+        draw.text((ox + 43, oy + 369), level["description"], font=_load_font(17), fill=_hex(theme["secondary"]))
+        wm = "FAVORABILITY"
+        wm_font = _load_font(14, True)
+        wm_w = self._text_width(draw, wm, wm_font)
+        draw.ellipse((ox + width - 48 - wm_w - 18, oy + 375, ox + width - 40 - wm_w, oy + 383), fill=accent)
+        draw.text((ox + width - 34 - wm_w, oy + 369), wm, font=wm_font, fill=_hex(theme["tertiary"]))
         return self._save_img(canvas)
 
     def render_ranking_image(
@@ -592,176 +382,104 @@ class FavorabilityRenderer:
         group_name: str = "",
         ascending: bool = False,
     ) -> str:
-        """Render a themed ranking image, keeping the existing public API."""
+        """渲染好感度排行卡片。"""
         if not ranked_list:
             return self.render_empty_ranking()
-
-        width, pad, row_height, row_gap = 720, 40, 80, 8
-        title = "好感度排行榜"
-        order_text = "由低到高" if ascending else "由高到低"
-        subtitle = f"当前会话 · 共 {len(ranked_list)} 位用户"
-        row_y = 192
-        footer_y = row_y + len(ranked_list) * (row_height + row_gap) - row_gap + 16
-        card_height = footer_y + 88
-        accent = _hex_to_rgb("#8B7CF6")
-        canvas = self._base_canvas(width, card_height, accent)
+        rows = ranked_list[:10]
+        width, margin = 760, 24
+        row_h = 68
+        height = 224 + len(rows) * row_h + 76
+        accent = _hex("#8B7CF6" if ascending else "#FF6B8A")
+        canvas = self._base_card(width, height, accent)
         draw = ImageDraw.Draw(canvas)
         theme = self.theme
+        ox, oy = margin, margin
 
-        bar = Image.new("RGBA", (64, 6), (0, 0, 0, 0))
-        for x in range(64):
-            ImageDraw.Draw(bar).line(
-                (x, 0, x, 5),
-                fill=_with_alpha(_mix(accent, (255, 255, 255), x / 100), 255),
-            )
-        canvas.alpha_composite(bar, (pad, 32))
-        self._draw_pill(canvas, pad, 54, "当前会话", accent)
-        draw = ImageDraw.Draw(canvas)
-        draw.text(
-            (pad, 106), title, font=_load_font(31, bold=True), fill=theme.text_primary
-        )
-        draw.text((pad, 147), subtitle, font=_load_font(17), fill=theme.text_tertiary)
-        order_font = _load_font(16, bold=True)
-        order_width = self._text_width(draw, order_text, order_font) + 54
-        self._draw_pill(
-            canvas,
-            width - pad - order_width,
-            112,
-            order_text,
-            accent,
-            height=36,
-            dot=False,
-            text_color=theme.text_secondary,
-        )
-        self._draw_divider(canvas, pad, width - pad, 172)
+        draw.rounded_rectangle((ox + 42, oy + 34, ox + 108, oy + 40), radius=3, fill=accent)
+        title = "好感度低谷榜" if ascending else "好感度排行榜"
+        draw.text((ox + 42, oy + 64), title, font=_load_font(34, True), fill=_hex(theme["text"]))
+        subtitle = f"{group_name + '  ·  ' if group_name else ''}共 {len(rows)} 位用户  ·  {'由低到高' if ascending else '由高到低'}"
+        draw.text((ox + 43, oy + 112), subtitle, font=_load_font(17), fill=_hex(theme["tertiary"]))
 
-        medal_colours = ("#F6B83F", "#A7B3C4", "#D89C68")
-        for index, (user_id, user_data) in enumerate(ranked_list):
-            score = int(user_data.get("score", 0))
+        # 概览胶囊
+        best_score = int(rows[0][1].get("score", 0))
+        overview = (ox + width - 222, oy + 54, ox + width - 42, oy + 126)
+        self._surface(canvas, overview, radius=20, strong=True, accent=accent)
+        draw.text((overview[0] + 20, overview[1] + 13), "当前榜首", font=_load_font(15, True), fill=_hex(theme["tertiary"]))
+        score_label = f"{best_score:+d}" if best_score else "0"
+        draw.text((overview[0] + 20, overview[1] + 34), score_label, font=_load_font(26, True), fill=accent)
+        draw.text((overview[0] + 82, overview[1] + 40), get_level_info(best_score)["title"], font=_load_font(17, True), fill=_hex(theme["secondary"]))
+
+        # 表头
+        header_y = oy + 158
+        self._surface(canvas, (ox + 42, header_y, ox + width - 42, header_y + 46), radius=15, strong=True)
+        headers = [(ox + 62, "排名"), (ox + 150, "昵称"), (ox + 430, "评价"), (ox + 650, "分数")]
+        for x, text in headers:
+            draw.text((x, header_y + 13), text, font=_load_font(15, True), fill=_hex(theme["tertiary"]))
+
+        medals = ["01", "02", "03"]
+        medal_colors = [_hex("#FFB547"), _hex("#9DA9BE"), _hex("#C98561")]
+        y = header_y + 54
+        for index, (uid, data) in enumerate(rows):
+            score = int(data.get("score", 0))
             level = get_level_info(score)
-            level_accent = _hex_to_rgb(level["color"])
-            if self.theme_name == "dark" and sum(level_accent) < 260:
-                level_accent = _mix(level_accent, (255, 255, 255), 0.45)
-            self._glass(canvas, (pad, row_y, width - pad, row_y + row_height), 18)
-            draw = ImageDraw.Draw(canvas)
+            level_color = _hex(level["color"])
+            row_box = (ox + 42, y, ox + width - 42, y + row_h - 8)
+            if index < 3:
+                self._surface(canvas, row_box, radius=17, strong=True, accent=medal_colors[index])
+            elif index % 2 == 0:
+                self._surface(canvas, row_box, radius=17)
 
-            rank_x = pad + 14
-            rank_y = row_y + 22
-            rank_colour = (
-                _hex_to_rgb(medal_colours[index]) if index < 3 else theme.text_tertiary
+            rank_box = (ox + 58, y + 13, ox + 100, y + 43)
+            rank_color = medal_colors[index] if index < 3 else _hex(theme["tertiary"])
+            if index < 3:
+                ImageDraw.Draw(canvas).rounded_rectangle(rank_box, radius=15, fill=(*rank_color, 28), outline=(*rank_color, 80), width=1)
+            rank_text_color = (
+                _hex(theme["text"]) if index < 3 else rank_color
             )
-            rank_layer = Image.new("RGBA", (36, 36), (0, 0, 0, 0))
-            ImageDraw.Draw(rank_layer).ellipse(
-                (0, 0, 35, 35), fill=_with_alpha(rank_colour, 220)
-            )
-            canvas.alpha_composite(rank_layer, (rank_x, rank_y))
-            rank_font = _load_font(15, bold=True)
-            rank_text = f"{index + 1:02d}"
-            rank_width = self._text_width(draw, rank_text, rank_font)
-            draw.text(
-                (rank_x + (36 - rank_width) // 2, rank_y + 8),
-                rank_text,
-                font=rank_font,
-                fill=(255, 255, 255),
+            self._center_text(
+                draw,
+                rank_box,
+                medals[index] if index < 3 else f"{index + 1:02d}",
+                _load_font(15, True),
+                rank_text_color,
             )
 
-            name = str(user_data.get("name") or user_id)
-            name_font = _load_font(20, bold=True)
-            eval_font = _load_font(15)
-            display_name = self._truncate(draw, name, name_font, 254)
-            evaluation = self._truncate(
-                draw, str(user_data.get("eval") or "暂无评价"), eval_font, 254
-            )
-            draw.text(
-                (pad + 70, row_y + 15),
-                display_name,
-                font=name_font,
-                fill=theme.text_primary,
-            )
-            draw.text(
-                (pad + 70, row_y + 48),
-                evaluation,
-                font=eval_font,
-                fill=theme.text_tertiary,
-            )
+            name_font = _load_font(19, True)
+            name = str(data.get("name") or uid)
+            draw.text((ox + 150, y + 13), self._ellipsize(draw, name, name_font, 245), font=name_font, fill=_hex(theme["text"]))
+            eval_font = _load_font(16)
+            evaluation = self._ellipsize(draw, str(data.get("eval") or "暂无评价"), eval_font, 190)
+            draw.text((ox + 430, y + 16), evaluation, font=eval_font, fill=_hex(theme["secondary"]))
+            score_text = f"{score:+d}" if score else "0"
+            score_font = _load_font(20, True)
+            score_w = self._text_width(draw, score_text, score_font)
+            draw.text((ox + width - 54 - score_w, y + 12), score_text, font=score_font, fill=level_color)
+            y += row_h
 
-            score_text = _format_score(score)
-            score_size = 27
-            while score_size > 17:
-                score_font = _load_font(score_size, bold=True)
-                if self._text_width(draw, score_text, score_font) <= 138:
-                    break
-                score_size -= 2
-            score_font = _load_font(score_size, bold=True)
-            score_width = self._text_width(draw, score_text, score_font)
-            score_x = width - pad - 22 - score_width
-            score_y = row_y + (row_height - self._line_height(score_font)) // 2
-            draw.text(
-                (score_x, score_y), score_text, font=score_font, fill=level_accent
-            )
-            status_font = _load_font(15, bold=True)
-            status_x = pad + 368
-            status_y = row_y + 31
-            draw.ellipse(
-                (status_x, status_y + 4, status_x + 8, status_y + 12),
-                fill=level_accent,
-            )
-            draw.text(
-                (status_x + 16, status_y),
-                level["title"],
-                font=status_font,
-                fill=theme.text_secondary,
-            )
-            row_y += row_height + row_gap
-
-        self._glass(canvas, (pad, footer_y, width - pad, footer_y + 42), 16)
-        draw = ImageDraw.Draw(canvas)
-        hint = "发送「查询好感度」查看你的详细档案"
-        hint_font = _load_font(16)
-        hint_width = self._text_width(draw, hint, hint_font)
-        draw.text(
-            ((width - hint_width) // 2, footer_y + 11),
-            hint,
-            font=hint_font,
-            fill=theme.text_secondary,
-        )
-        self._draw_footer(canvas, width, footer_y + 54, accent)
+        divider_y = oy + height - 64
+        draw.line((ox + 42, divider_y, ox + width - 42, divider_y), fill=_rgba(theme["border"], 18), width=1)
+        draw.text((ox + 43, divider_y + 22), "发送「查询好感度」查看你的详细档案", font=_load_font(16), fill=_hex(theme["tertiary"]))
+        wm = "FAVORABILITY RANK"
+        wm_font = _load_font(14, True)
+        wm_w = self._text_width(draw, wm, wm_font)
+        draw.ellipse((ox + width - 49 - wm_w - 18, divider_y + 27, ox + width - 41 - wm_w, divider_y + 35), fill=accent)
+        draw.text((ox + width - 35 - wm_w, divider_y + 21), wm, font=wm_font, fill=_hex(theme["tertiary"]))
         return self._save_img(canvas)
 
     def render_empty_ranking(self) -> str:
-        """Render the themed empty state used when a ranking has no records."""
-        width, card_height, pad = 600, 306, 42
-        accent = _hex_to_rgb("#8B7CF6")
-        canvas = self._base_canvas(width, card_height, accent)
+        width, height, margin = 620, 280, 24
+        accent = _hex("#8B7CF6")
+        canvas = self._base_card(width, height, accent)
         draw = ImageDraw.Draw(canvas)
         theme = self.theme
-        bar = Image.new("RGBA", (64, 6), (0, 0, 0, 0))
-        for x in range(64):
-            ImageDraw.Draw(bar).line(
-                (x, 0, x, 5),
-                fill=_with_alpha(_mix(accent, (255, 255, 255), x / 100), 255),
-            )
-        canvas.alpha_composite(bar, (pad, 34))
-        self._draw_pill(canvas, pad, 58, "当前会话", accent)
-        self._glass(canvas, (pad, 122, width - pad, 235), 22)
-        draw = ImageDraw.Draw(canvas)
-        title_font = _load_font(27, bold=True)
-        body_font = _load_font(17)
-        title = "暂无好感度记录"
-        body = "和 AI 聊起天后，这里会出现大家的好感度。"
-        title_width = self._text_width(draw, title, title_font)
-        body_width = self._text_width(draw, body, body_font)
-        draw.text(
-            ((width - title_width) // 2, 151),
-            title,
-            font=title_font,
-            fill=theme.text_primary,
-        )
-        draw.text(
-            ((width - body_width) // 2, 194),
-            body,
-            font=body_font,
-            fill=theme.text_secondary,
-        )
-        self._draw_footer(canvas, width, 260, accent)
+        ox, oy = margin, margin
+        draw.rounded_rectangle((ox + 42, oy + 34, ox + 108, oy + 40), radius=3, fill=accent)
+        draw.text((ox + 42, oy + 66), "好感度排行榜", font=_load_font(30, True), fill=_hex(theme["text"]))
+        panel = (ox + 42, oy + 128, ox + width - 42, oy + 222)
+        self._surface(canvas, panel, radius=22, strong=True, accent=accent)
+        draw.ellipse((panel[0] + 24, panel[1] + 27, panel[0] + 64, panel[1] + 67), fill=(*accent, 30), outline=(*accent, 90), width=1)
+        self._center_text(draw, (panel[0] + 24, panel[1] + 27, panel[0] + 64, panel[1] + 67), "—", _load_font(20, True), accent)
+        draw.text((panel[0] + 82, panel[1] + 22), "暂无好感度记录", font=_load_font(21, True), fill=_hex(theme["text"]))
+        draw.text((panel[0] + 82, panel[1] + 52), "与 AI 开始聊天后，这里会自动生成排行", font=_load_font(16), fill=_hex(theme["tertiary"]))
         return self._save_img(canvas)

@@ -13,6 +13,10 @@ help: |
     /禁言 <@用户> <秒数>          — 禁言指定用户（最大300秒）
     /解除禁言 <@用户>             — 解除指定用户禁言
 
+  图片渲染：
+    - 支持 dark 深色与 light 亮色主题
+    - 输出带透明通道的圆角 PNG 卡片
+
   禁言机制（v2.1.0+）：
     - LLM 可在用户持续恶劣行为（辱骂、骚扰等）且好感度≤-20时输出 [MUTE:N] 标签触发禁言
     - 禁言最长 5 分钟（300秒），期间该用户的消息将不会触发 LLM 回复
@@ -27,6 +31,7 @@ help: |
     - 禁言系统开关：启用/禁用禁言功能
     - 系统时间注入开关：启用后每次请求注入当前时间（通过 extra_user_content_parts）
     - 用户信息注入开关：启用后每次请求注入用户名和ID（通过 extra_user_content_parts）
-version: v2.1.0
+    - 好感度卡片主题：可选 dark / light
+version: v2.2.0
 author: Iris1598
 repo: "https://github.com/iris1598/astrbot_plugin_favorability"

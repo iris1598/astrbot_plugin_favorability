@@ -36,13 +36,13 @@
         "hint": "开启后会在每次请求时注入当前用户名称、ID等信息（通过 extra_user_content_parts）"
     },
     "render_theme": {
-        "description": "图片渲染主题",
+        "description": "好感度卡片主题",
         "type": "string",
         "default": "dark",
         "options": [
             "dark",
             "light"
         ],
-        "hint": "沿用 Rika Share 风格：深色渐变或浅色渐变"
+        "hint": "dark 深色海军蓝风格 / light 明亮近白风格"
     }
 }
