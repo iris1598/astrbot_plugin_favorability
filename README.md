@@ -70,6 +70,9 @@ astrbot_plugin_favorability/
 | `mute_condition` | "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）" | 禁言触发条件描述，自由定义 |
 | `system_time_enabled` | true | 系统时间注入（通过 extra_user_content_parts） |
 | `user_info_enabled` | true | 用户信息注入（通过 extra_user_content_parts） |
+| `render_theme` | `dark` | 图片主题：`dark` 深色渐变 / `light` 浅色渐变 |
+
+图片渲染沿用 `astrbot_plugin_rika_share` 的主题语言：圆角渐变卡片、柔和品牌色光晕、阴影和毛玻璃信息块。通过 `render_theme` 可切换暗色和亮色两套风格。
 
 ## 表情包
 
@@ -78,6 +81,8 @@ astrbot_plugin_favorability/
 支持格式：jpg、png、gif、webp
 
 ## 好感度等级
+
+好感度为持续累计数值，**不设数字上限或下限**；下表的阈值只决定当前关系等级和展示颜色。极长数值仅会在图片中以科学计数法缩写，实际存储和排行数值不变。
 
 | 分数范围 | 等级 | 颜色 |
 |----------|------|------|

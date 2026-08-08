@@ -14,9 +14,7 @@ AI 根据对话内容自主更新用户好感度与评价，支持表情包回�
 """
 
 import asyncio
-import time
 
-import astrbot.api.message_components as Comp
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api.provider import LLMResponse, ProviderRequest
@@ -63,7 +61,10 @@ class FavorabilityPlugin(Star):
         try:
             from .render.image import FavorabilityRenderer
 
-            self.renderer = FavorabilityRenderer(data_dir / "render_cache")
+            self.renderer = FavorabilityRenderer(
+                data_dir / "render_cache",
+                theme=str(self.config.get("render_theme", "dark")),
+            )
             self.has_renderer = True
             # 启动时清理过期缓存
             deleted, remaining = self.renderer.cleanup_cache()
@@ -95,7 +96,11 @@ class FavorabilityPlugin(Star):
 
     @property
     def mute_condition(self) -> str:
-        return str(self.config.get("mute_condition", "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）"))
+        return str(
+            self.config.get(
+                "mute_condition", "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）"
+            )
+        )
 
     @property
     def system_time_enabled(self) -> bool:
