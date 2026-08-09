@@ -77,7 +77,7 @@ pip install -r requirements.txt
 | `user_info_enabled` | `true` | 向 LLM 请求注入用户名与用户 ID |
 | `render_theme` | `dark` | 图片主题，可选 `dark` 或 `light` |
 
-提示词配置使用多行文本框。任意提示词配置留空后会恢复该段内置默认值；禁言提示词中的 `{mute_condition}` 会自动替换为 `mute_condition` 配置内容。
+提示词配置使用多行文本框。任意提示词配置留空后，重载插件会自动回填并保存该段内置默认模板；禁言提示词中的 `{mute_condition}` 会自动替换为 `mute_condition` 配置内容。
 修改提示词或 `render_theme` 后重启或重载插件，使新配置生效。
 
 ## 好感度等级

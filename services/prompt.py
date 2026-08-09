@@ -125,6 +125,13 @@ FAV_SYSTEM_PROMPT = "\n\n".join(
     (FAV_CORE_PROMPT, FAV_BEHAVIOR_PROMPT, FAV_MUTE_PROMPT, FAV_SECURITY_PROMPT)
 )
 
+FAVORABILITY_PROMPT_DEFAULTS = {
+    "favorability_prompt_core": FAV_CORE_PROMPT,
+    "favorability_prompt_behavior": FAV_BEHAVIOR_PROMPT,
+    "favorability_prompt_mute": FAV_MUTE_PROMPT,
+    "favorability_prompt_security": FAV_SECURITY_PROMPT,
+}
+
 # 表情包机制提示词片段
 STICKER_SYSTEM_PROMPT_TPL = """--- 表情包机制 ---
 1. 仅在确实有助于表达语气时发送表情包，格式为置于回复末尾的 `[STK:分类名]`。

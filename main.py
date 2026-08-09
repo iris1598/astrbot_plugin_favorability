@@ -24,7 +24,7 @@ from astrbot.api import AstrBotConfig, logger
 
 from .models.manager import FavorabilityManager
 from .services.sticker import StickerManager
-from .services.prompt import PromptManager
+from .services.prompt import PromptManager, FAVORABILITY_PROMPT_DEFAULTS
 from .llm.handler import LLMHandler
 from .commands.user import UserCommands
 from .commands.admin import AdminCommands
@@ -42,6 +42,7 @@ class FavorabilityPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
+        self._restore_empty_prompt_defaults()
 
         # ── 数据层 ──
         data_dir = StarTools.get_data_dir()
@@ -83,6 +84,28 @@ class FavorabilityPlugin(Star):
             logger.warning(f"[favorability] PIL 渲染器初始化失败，将使用文本模式: {e}")
 
     # ── 配置属性 ────────────────────────────────────────────
+
+    def _restore_empty_prompt_defaults(self):
+        """将留空的提示词配置恢复为内置默认值并持久化。"""
+        restored = []
+        for key, default in FAVORABILITY_PROMPT_DEFAULTS.items():
+            value = self.config.get(key, "")
+            if not str(value or "").strip():
+                self.config[key] = default
+                restored.append(key)
+
+        if not restored:
+            return
+
+        save_config = getattr(self.config, "save_config", None)
+        if callable(save_config):
+            try:
+                save_config()
+            except Exception as e:
+                logger.warning(f"[favorability] 保存默认提示词配置失败: {e}")
+        logger.info(
+            f"[favorability] 已恢复 {len(restored)} 项留空的默认提示词配置"
+        )
 
     @property
     def favorability_enabled(self) -> bool:
