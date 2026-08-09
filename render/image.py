@@ -90,18 +90,18 @@ def _mix(a: tuple[int, int, int], b: tuple[int, int, int], ratio: float) -> tupl
 def get_level_info(score: int) -> dict:
     """根据分数返回好感度等级信息。"""
     if score >= 70:
-        return {"title": "挚爱", "color": "#FF5C7A", "description": "爱人级 · 关系已不分彼此"}
+        return {"title": "亲密无间", "color": "#FF5C7A", "description": "重要的人 · 自然亲昵而热情"}
     if score >= 50:
-        return {"title": "挚友", "color": "#FF7A5C", "description": "挚友级 · 热情而主动"}
+        return {"title": "亲密朋友", "color": "#FF7A5C", "description": "亲密关系 · 主动关心与互动"}
     if score >= 21:
-        return {"title": "熟人", "color": "#36C98F", "description": "熟人级 · 积极友好"}
+        return {"title": "聊得来", "color": "#36C98F", "description": "熟人关系 · 轻松而友好"}
     if score >= -20:
-        return {"title": "路人", "color": "#8290A8", "description": "陌生人级 · 礼貌中立"}
+        return {"title": "普通关系", "color": "#8290A8", "description": "一般关系 · 礼貌而有分寸"}
     if score >= -50:
-        return {"title": "生厌", "color": "#F2A93B", "description": "反感警惕 · 保持距离"}
+        return {"title": "心存芥蒂", "color": "#F2A93B", "description": "有所介意 · 谨慎并保持边界"}
     if score >= -70:
-        return {"title": "憎恶", "color": "#F05B68", "description": "极度厌恶 · 关系紧张"}
-    return {"title": "仇敌", "color": "#8B5CF6", "description": "敌对状态 · 已降至冰点"}
+        return {"title": "明显反感", "color": "#F05B68", "description": "关系紧张 · 冷淡而坚定"}
+    return {"title": "关系破裂", "color": "#8B5CF6", "description": "接近冰点 · 减少互动并直接拒绝"}
 
 
 _THEMES = {
