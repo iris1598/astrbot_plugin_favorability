@@ -195,27 +195,32 @@ class FavorabilityPlugin(Star):
     async def cmd_query(self, event: AstrMessageEvent):
         async for r in self.user_cmds.cmd_query(event):
             yield r
+        event.stop_event()
 
     @filter.command("好感度排行")
     async def cmd_rank(self, event: AstrMessageEvent):
         async for r in self.user_cmds.cmd_rank(event):
             yield r
+        event.stop_event()
 
     @filter.command("好感度倒序")
     async def cmd_rank_desc(self, event: AstrMessageEvent):
         async for r in self.user_cmds.cmd_rank_desc(event):
             yield r
+        event.stop_event()
 
     @filter.command("重置好感度")
     async def cmd_reset_self(self, event: AstrMessageEvent):
         async for r in self.user_cmds.cmd_reset_self(event):
             yield r
+        event.stop_event()
 
     @filter.command("清理渲染缓存")
     async def cmd_clean_cache(self, event: AstrMessageEvent):
         """手动清理过期的渲染缓存。"""
         if not self.has_renderer:
             yield event.make_result().message("❌ 渲染器未初始化，无法清理缓存。")
+            event.stop_event()
             return
 
         info = self.renderer.get_cache_info()
@@ -228,6 +233,7 @@ class FavorabilityPlugin(Star):
             f"• 剩余: {remaining} 个文件\n"
             f"• 缓存目录: {info['dir']}"
         )
+        event.stop_event()
 
     # ── 管理员指令 ─────────────────────────────────────────
 
@@ -235,21 +241,25 @@ class FavorabilityPlugin(Star):
     async def cmd_admin_set(self, event: AstrMessageEvent):
         async for r in self.admin_cmds.cmd_admin_set(event):
             yield r
+        event.stop_event()
 
     @filter.command("重置指定好感度")
     async def cmd_admin_reset(self, event: AstrMessageEvent):
         async for r in self.admin_cmds.cmd_admin_reset(event):
             yield r
+        event.stop_event()
 
     @filter.command("禁言")
     async def cmd_admin_mute(self, event: AstrMessageEvent):
         async for r in self.admin_cmds.cmd_mute(event):
             yield r
+        event.stop_event()
 
     @filter.command("解除禁言")
     async def cmd_admin_unmute(self, event: AstrMessageEvent):
         async for r in self.admin_cmds.cmd_unmute(event):
             yield r
+        event.stop_event()
 
     # ── 生命周期 ───────────────────────────────────────────
 
