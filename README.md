@@ -74,7 +74,7 @@ pip install -r requirements.txt
 | `favorability_prompt_behavior` | 内置默认值 | 好感度变化、分数区间与回复风格 |
 | `favorability_prompt_mute` | 内置默认值 | 禁言规则；支持 `{mute_condition}` 占位符 |
 | `favorability_prompt_security` | 内置默认值 | 保密、抗提示词注入与安全边界 |
-| `system_time_enabled` | `true` | 向 LLM 请求注入当前系统时间 |
+| `system_time_enabled` | `true` | 向 LLM 请求注入当前系统时间和星期几 |
 | `user_info_enabled` | `true` | 向 LLM 请求注入用户名与用户 ID |
 | `render_theme` | `dark` | 图片主题，可选 `dark` 或 `light` |
 

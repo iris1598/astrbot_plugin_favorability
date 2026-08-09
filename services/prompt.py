@@ -14,6 +14,7 @@
 """
 
 import re
+from datetime import datetime
 from typing import Optional
 
 # ── 增强版正则表达式 ──────────────────────────────────────
@@ -135,6 +136,13 @@ FAVORABILITY_PROMPT_DEFAULTS = {
 DEFAULT_STICKER_CONDITION = (
     "仅当表情包能够自然表达当前情绪、语气或场景时发送；普通回复、信息性回复或没有合适分类时不要发送。"
 )
+
+WEEKDAY_NAMES = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
+
+
+def format_system_time(current_time: datetime) -> str:
+    """格式化注入 LLM 的系统时间，并附带中文星期。"""
+    return f"{current_time:%Y-%m-%d %H:%M:%S} {WEEKDAY_NAMES[current_time.weekday()]}"
 
 # 表情包机制提示词片段
 STICKER_SYSTEM_PROMPT_TPL = """--- 表情包机制 ---

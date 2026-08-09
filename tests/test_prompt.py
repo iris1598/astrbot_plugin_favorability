@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from services.prompt import (
@@ -8,6 +9,7 @@ from services.prompt import (
     FAV_CORE_PROMPT,
     FAV_SECURITY_PROMPT,
     PromptManager,
+    format_system_time,
     validate_eval_text,
 )
 
@@ -92,6 +94,12 @@ class PromptManagerTests(unittest.TestCase):
         self.assertTrue(validate_eval_text("刚刚聊得来"))
         self.assertTrue(validate_eval_text("一" * 20))
         self.assertFalse(validate_eval_text("一" * 21))
+
+    def test_system_time_includes_chinese_weekday(self):
+        self.assertEqual(
+            format_system_time(datetime(2026, 8, 9, 14, 30, 0)),
+            "2026-08-09 14:30:00 星期日",
+        )
 
 
 class ConfigSchemaTests(unittest.TestCase):

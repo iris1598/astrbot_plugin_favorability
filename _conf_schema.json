@@ -57,7 +57,7 @@
         "description": "系统时间注入开关",
         "type": "bool",
         "default": true,
-        "hint": "开启后会在每次请求时注入当前系统时间（通过 extra_user_content_parts）"
+        "hint": "开启后会在每次请求时注入当前系统时间和星期几（通过 extra_user_content_parts）"
     },
     "user_info_enabled": {
         "description": "用户信息注入开关",

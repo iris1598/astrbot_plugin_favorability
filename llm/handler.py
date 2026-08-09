@@ -26,6 +26,7 @@ from ..services.prompt import (
     validate_fav_value,
     validate_eval_text,
     validate_mute_seconds,
+    format_system_time,
 )
 
 # 禁言时的回复模板（随机选择一条）
@@ -120,7 +121,7 @@ class LLMHandler:
             score=user_info.get("score") if user_info else None,
             eval_text=user_info.get("eval") if user_info else None,
             time_str=(
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                format_system_time(datetime.now())
                 if plug.system_time_enabled
                 else None
             ),
