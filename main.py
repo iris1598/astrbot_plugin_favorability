@@ -42,11 +42,29 @@ from .commands.admin import AdminCommands
     "v2.5.0",
 )
 class FavorabilityPlugin(Star):
+    _SETTING_GROUPS = {
+        "favorability_enabled": "feature_settings",
+        "sticker_enabled": "feature_settings",
+        "mute_enabled": "feature_settings",
+        "prompt_preset": "prompt_settings",
+        "mute_condition": "prompt_settings",
+        "sticker_condition": "prompt_settings",
+        "favorability_prompt_core": "prompt_settings",
+        "favorability_prompt_behavior": "prompt_settings",
+        "favorability_prompt_mute": "prompt_settings",
+        "favorability_prompt_security": "prompt_settings",
+        "system_time_enabled": "context_settings",
+        "user_info_enabled": "context_settings",
+        "render_theme": "render_settings",
+    }
+    _CONFIG_LAYOUT_VERSION = 1
+
     """好感度系统主插件。"""
 
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
+        self._migrate_grouped_config()
         self._restore_empty_prompt_defaults()
 
         # ── 数据层 ──
@@ -71,7 +89,7 @@ class FavorabilityPlugin(Star):
 
             self.renderer = FavorabilityRenderer(
                 data_dir / "render_cache",
-                theme=str(self.config.get("render_theme", "dark")),
+                theme=str(self._get_setting("render_theme", "dark")),
             )
             self.has_renderer = True
             # 启动时清理过期缓存
@@ -90,6 +108,53 @@ class FavorabilityPlugin(Star):
 
     # ── 配置属性 ────────────────────────────────────────────
 
+    def _get_setting(self, key: str, default=None):
+        """读取分组配置，并兼容旧版平铺配置。"""
+        group_name = self._SETTING_GROUPS.get(key)
+        if group_name:
+            group = self.config.get(group_name)
+            if isinstance(group, dict) and key in group:
+                return group.get(key)
+        return self.config.get(key, default)
+
+    def _set_setting(self, key: str, value) -> None:
+        group_name = self._SETTING_GROUPS.get(key)
+        if not group_name:
+            self.config[key] = value
+            return
+        group = self.config.get(group_name)
+        if not isinstance(group, dict):
+            group = {}
+            self.config[group_name] = group
+        group[key] = value
+
+    def _migrate_grouped_config(self) -> None:
+        """把旧版平铺配置迁移到新的设置分组，避免升级后丢失配置。"""
+        try:
+            layout_version = int(self.config.get("_config_layout_version", 0) or 0)
+        except (TypeError, ValueError):
+            layout_version = 0
+
+        if layout_version >= self._CONFIG_LAYOUT_VERSION:
+            return
+
+        for key, group_name in self._SETTING_GROUPS.items():
+            group = self.config.get(group_name)
+            if not isinstance(group, dict):
+                group = {}
+                self.config[group_name] = group
+            if key in self.config:
+                group[key] = self.config[key]
+
+        self.config["_config_layout_version"] = self._CONFIG_LAYOUT_VERSION
+        save_config = getattr(self.config, "save_config", None)
+        if callable(save_config):
+            try:
+                save_config()
+            except Exception as e:
+                logger.warning(f"[favorability] 保存分组配置失败: {e}")
+        logger.info("[favorability] 已将旧版平铺配置迁移到新的设置分组")
+
     def _restore_empty_prompt_defaults(self):
         """将留空的提示词配置恢复为内置默认值并持久化。"""
         restored = []
@@ -98,9 +163,9 @@ class FavorabilityPlugin(Star):
             "sticker_condition": DEFAULT_STICKER_CONDITION,
         }
         for key, default in prompt_defaults.items():
-            value = self.config.get(key, "")
+            value = self._get_setting(key, "")
             if not str(value or "").strip():
-                self.config[key] = default
+                self._set_setting(key, default)
                 restored.append(key)
 
         if not restored:
@@ -118,52 +183,52 @@ class FavorabilityPlugin(Star):
 
     @property
     def favorability_enabled(self) -> bool:
-        return bool(self.config.get("favorability_enabled", True))
+        return bool(self._get_setting("favorability_enabled", True))
 
     @property
     def sticker_enabled(self) -> bool:
-        return bool(self.config.get("sticker_enabled", True))
+        return bool(self._get_setting("sticker_enabled", True))
 
     @property
     def sticker_condition(self) -> str:
-        return str(self.config.get("sticker_condition", "") or "")
+        return str(self._get_setting("sticker_condition", "") or "")
 
     @property
     def prompt_preset(self) -> str:
-        value = str(self.config.get("prompt_preset", "default") or "").strip().lower()
+        value = str(self._get_setting("prompt_preset", "default") or "").strip().lower()
         return value if value in PROMPT_PRESET_NAMES else "default"
 
     @property
     def mute_enabled(self) -> bool:
-        return bool(self.config.get("mute_enabled", True))
+        return bool(self._get_setting("mute_enabled", True))
 
     @property
     def mute_condition(self) -> str:
-        return str(self.config.get("mute_condition", "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）"))
+        return str(self._get_setting("mute_condition", "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）"))
 
     @property
     def favorability_prompt_core(self) -> str:
-        return str(self.config.get("favorability_prompt_core", "") or "")
+        return str(self._get_setting("favorability_prompt_core", "") or "")
 
     @property
     def favorability_prompt_behavior(self) -> str:
-        return str(self.config.get("favorability_prompt_behavior", "") or "")
+        return str(self._get_setting("favorability_prompt_behavior", "") or "")
 
     @property
     def favorability_prompt_mute(self) -> str:
-        return str(self.config.get("favorability_prompt_mute", "") or "")
+        return str(self._get_setting("favorability_prompt_mute", "") or "")
 
     @property
     def favorability_prompt_security(self) -> str:
-        return str(self.config.get("favorability_prompt_security", "") or "")
+        return str(self._get_setting("favorability_prompt_security", "") or "")
 
     @property
     def system_time_enabled(self) -> bool:
-        return bool(self.config.get("system_time_enabled", True))
+        return bool(self._get_setting("system_time_enabled", True))
 
     @property
     def user_info_enabled(self) -> bool:
-        return bool(self.config.get("user_info_enabled", True))
+        return bool(self._get_setting("user_info_enabled", True))
 
     def keys(self, event: AstrMessageEvent) -> tuple[str, str]:
         """返回 (group_key, user_id)。"""

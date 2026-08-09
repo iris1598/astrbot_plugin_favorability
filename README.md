@@ -67,10 +67,10 @@ pip install -r requirements.txt
 |---|---:|---|
 | `favorability_enabled` | `true` | 好感度系统开关 |
 | `sticker_enabled` | `true` | 表情包系统开关 |
-| `sticker_condition` | 仅在合适时发送… | 自定义表情包发送条件 |
-| `prompt_preset` | `default` | 好感度提示词预设：`default`、`old` 或 `custom` |
 | `mute_enabled` | `true` | 禁言系统开关 |
+| `prompt_preset` | `default` | 好感度提示词预设：`default`、`old` 或 `custom` |
 | `mute_condition` | 持续恶劣行为… | 自定义禁言触发条件描述 |
+| `sticker_condition` | 仅在合适时发送… | 自定义表情包发送条件 |
 | `favorability_prompt_core` | 内置默认值 | 好感度标签格式与输出纪律 |
 | `favorability_prompt_behavior` | 内置默认值 | 好感度变化、分数区间与回复风格 |
 | `favorability_prompt_mute` | 内置默认值 | 禁言规则；支持 `{mute_condition}` 占位符 |
@@ -79,8 +79,7 @@ pip install -r requirements.txt
 | `user_info_enabled` | `true` | 向 LLM 请求注入用户名与用户 ID |
 | `render_theme` | `dark` | 图片主题，可选 `dark` 或 `light` |
 
-提示词配置使用多行文本框。任意提示词配置留空后，重载插件会自动回填并保存该段内置默认模板；禁言提示词中的 `{mute_condition}` 会自动替换为 `mute_condition` 配置内容。
-选择 `default` 使用当前拟人化提示词和表情包条件，选择 `old` 使用旧版风格提示词和表情包条件，选择 `custom` 才会使用下方四段自定义提示词及 `sticker_condition`。
+选择 `default` 使用当前拟人化提示词和表情包条件，选择 `old` 使用旧版风格提示词和表情包条件，选择 `custom` 才会显示并使用 `mute_condition`、`sticker_condition` 及下方四段自定义提示词。任意自定义配置留空后，重载插件会自动回填并保存对应的内置默认值；禁言提示词中的 `{mute_condition}` 会自动替换为 `mute_condition` 配置内容。
 修改提示词或 `render_theme` 后重启或重载插件，使新配置生效。
 
 ## 好感度等级

@@ -149,6 +149,7 @@ class ConfigSchemaTests(unittest.TestCase):
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
         for key in (
+            "mute_condition",
             "sticker_condition",
             "favorability_prompt_core",
             "favorability_prompt_behavior",
@@ -157,10 +158,63 @@ class ConfigSchemaTests(unittest.TestCase):
         ):
             self.assertEqual(schema[key]["type"], "text")
             self.assertTrue(schema[key]["default"])
+            self.assertEqual(schema[key]["condition"], {"prompt_preset": "custom"})
 
         self.assertEqual(schema["prompt_preset"]["type"], "string")
         self.assertEqual(schema["prompt_preset"]["default"], "default")
         self.assertEqual(schema["prompt_preset"]["options"], ["default", "old", "custom"])
+        schema_keys = list(schema)
+        self.assertLess(schema_keys.index("mute_condition"), schema_keys.index("sticker_condition"))
+        self.assertLess(schema_keys.index("prompt_preset"), schema_keys.index("mute_condition"))
+
+        expected_groups = {
+            "feature_settings": ["favorability_enabled", "sticker_enabled", "mute_enabled"],
+            "prompt_settings": [
+                "prompt_preset",
+                "mute_condition",
+                "sticker_condition",
+                "favorability_prompt_core",
+                "favorability_prompt_behavior",
+                "favorability_prompt_mute",
+                "favorability_prompt_security",
+            ],
+            "context_settings": ["system_time_enabled", "user_info_enabled"],
+            "render_settings": ["render_theme"],
+        }
+        for group, keys in expected_groups.items():
+            self.assertEqual(schema[group]["type"], "object")
+            self.assertEqual(list(schema[group]["items"]), keys)
+
+        for key in (
+            "mute_condition",
+            "sticker_condition",
+            "favorability_prompt_core",
+            "favorability_prompt_behavior",
+            "favorability_prompt_mute",
+            "favorability_prompt_security",
+        ):
+            self.assertEqual(
+                schema["prompt_settings"]["items"][key]["condition"],
+                {"prompt_preset": "custom"},
+            )
+
+        self.assertTrue(schema["_config_layout_version"]["invisible"])
+        for key in (
+            "favorability_enabled",
+            "sticker_enabled",
+            "prompt_preset",
+            "mute_enabled",
+            "mute_condition",
+            "sticker_condition",
+            "favorability_prompt_core",
+            "favorability_prompt_behavior",
+            "favorability_prompt_mute",
+            "favorability_prompt_security",
+            "system_time_enabled",
+            "user_info_enabled",
+            "render_theme",
+        ):
+            self.assertTrue(schema[key]["invisible"])
 
 
 if __name__ == "__main__":
