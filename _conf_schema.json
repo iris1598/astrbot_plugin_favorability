@@ -11,6 +11,12 @@
         "default": true,
         "hint": "关闭后不再注入表情包提示词，模型不会使用表情包功能"
     },
+    "sticker_condition": {
+        "description": "表情包发送条件",
+        "type": "text",
+        "default": "仅当表情包能够自然表达当前情绪、语气或场景时发送；普通回复、信息性回复或没有合适分类时不要发送。",
+        "hint": "自定义表情包发送条件。留空后重载插件会自动恢复默认条件。"
+    },
     "mute_enabled": {
         "description": "禁言系统开关",
         "type": "bool",

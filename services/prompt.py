@@ -132,11 +132,16 @@ FAVORABILITY_PROMPT_DEFAULTS = {
     "favorability_prompt_security": FAV_SECURITY_PROMPT,
 }
 
+DEFAULT_STICKER_CONDITION = (
+    "仅当表情包能够自然表达当前情绪、语气或场景时发送；普通回复、信息性回复或没有合适分类时不要发送。"
+)
+
 # 表情包机制提示词片段
 STICKER_SYSTEM_PROMPT_TPL = """--- 表情包机制 ---
-1. 仅在确实有助于表达语气时发送表情包，格式为置于回复末尾的 `[STK:分类名]`。
-2. 可用分类：{categories}
-3. 如果没有合适分类或无法确定分类，可以不发送；不要虚构不存在的分类。"""
+1. 发送条件：{sticker_condition}
+2. 发送格式：将 `[STK:分类名]` 放在回复正文末尾。
+3. 可用分类：{categories}
+4. 如果没有合适分类或无法确定分类，可以不发送；不要虚构不存在的分类。"""
 
 # 动态上下文模板（注入到 extra_user_content_parts）
 DYNAMIC_CONTEXT_TPL = """<dynamic_context>
@@ -158,6 +163,7 @@ class PromptManager:
         favorability_prompt_behavior: str = "",
         favorability_prompt_mute: str = "",
         favorability_prompt_security: str = "",
+        sticker_condition: str = "",
     ) -> str:
         """构建静态规则文本（追加到 system_prompt）。"""
         parts = []
@@ -188,12 +194,18 @@ class PromptManager:
                 select_prompt(favorability_prompt_security, FAV_SECURITY_PROMPT)
             )
         if sticker_enabled:
+            condition = sticker_condition or DEFAULT_STICKER_CONDITION
             cat_str = (
                 f"可用分类：{', '.join(sticker_categories)}"
                 if sticker_categories
                 else "（暂无分类）"
             )
-            parts.append(STICKER_SYSTEM_PROMPT_TPL.format(categories=cat_str))
+            parts.append(
+                STICKER_SYSTEM_PROMPT_TPL.format(
+                    categories=cat_str,
+                    sticker_condition=condition,
+                )
+            )
         return "\n\n".join(parts)
 
     @staticmethod

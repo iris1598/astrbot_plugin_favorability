@@ -24,7 +24,11 @@ from astrbot.api import AstrBotConfig, logger
 
 from .models.manager import FavorabilityManager
 from .services.sticker import StickerManager
-from .services.prompt import PromptManager, FAVORABILITY_PROMPT_DEFAULTS
+from .services.prompt import (
+    DEFAULT_STICKER_CONDITION,
+    FAVORABILITY_PROMPT_DEFAULTS,
+    PromptManager,
+)
 from .llm.handler import LLMHandler
 from .commands.user import UserCommands
 from .commands.admin import AdminCommands
@@ -34,7 +38,7 @@ from .commands.admin import AdminCommands
     "astrbot_plugin_favorability",
     "Iris1598",
     "好感度系统：AI根据对话内容自主更新用户好感度与评价，支持表情包回应、禁言处罚，PIL图片渲染",
-    "v2.3.0",
+    "v2.4.0",
 )
 class FavorabilityPlugin(Star):
     """好感度系统主插件。"""
@@ -88,7 +92,11 @@ class FavorabilityPlugin(Star):
     def _restore_empty_prompt_defaults(self):
         """将留空的提示词配置恢复为内置默认值并持久化。"""
         restored = []
-        for key, default in FAVORABILITY_PROMPT_DEFAULTS.items():
+        prompt_defaults = {
+            **FAVORABILITY_PROMPT_DEFAULTS,
+            "sticker_condition": DEFAULT_STICKER_CONDITION,
+        }
+        for key, default in prompt_defaults.items():
             value = self.config.get(key, "")
             if not str(value or "").strip():
                 self.config[key] = default
@@ -114,6 +122,10 @@ class FavorabilityPlugin(Star):
     @property
     def sticker_enabled(self) -> bool:
         return bool(self.config.get("sticker_enabled", True))
+
+    @property
+    def sticker_condition(self) -> str:
+        return str(self.config.get("sticker_condition", "") or "")
 
     @property
     def mute_enabled(self) -> bool:

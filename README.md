@@ -67,6 +67,7 @@ pip install -r requirements.txt
 |---|---:|---|
 | `favorability_enabled` | `true` | 好感度系统开关 |
 | `sticker_enabled` | `true` | 表情包系统开关 |
+| `sticker_condition` | 仅在合适时发送… | 自定义表情包发送条件 |
 | `mute_enabled` | `true` | 禁言系统开关 |
 | `mute_condition` | 持续恶劣行为… | 自定义禁言触发条件描述 |
 | `favorability_prompt_core` | 内置默认值 | 好感度标签格式与输出纪律 |
@@ -148,6 +149,7 @@ python scripts/preview_render.py
 
 ## 版本历史
 
+- **v2.4.0**：新增表情包发送条件配置，优化好感度拟人化映射与指令事件隔离
 - **v2.3.0**：优化好感度提示词，支持核心规则、行为规则、禁言规则和安全规则分段配置
 - **v2.2.0**：重新设计图片渲染，新增亮暗双主题、透明 PNG、现代个人档案卡与排行榜
 - **v2.1.0**：新增 `[MUTE:N]` 禁言机制及管理员禁言指令

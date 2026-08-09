@@ -103,6 +103,7 @@ class LLMHandler:
             favorability_prompt_behavior=plug.favorability_prompt_behavior,
             favorability_prompt_mute=plug.favorability_prompt_mute,
             favorability_prompt_security=plug.favorability_prompt_security,
+            sticker_condition=plug.sticker_condition,
         )
         if static_prompt:
             req.system_prompt = (req.system_prompt or "") + static_prompt

@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from services.prompt import (
+    DEFAULT_STICKER_CONDITION,
     FAV_BEHAVIOR_PROMPT,
     FAV_CORE_PROMPT,
     FAV_SECURITY_PROMPT,
@@ -70,6 +71,23 @@ class PromptManagerTests(unittest.TestCase):
         self.assertNotIn("[FAV:±N]", sticker_only)
         self.assertIn("[STK:分类名]", sticker_only)
 
+    def test_sticker_condition_is_injected(self):
+        prompt = PromptManager.build_static_prompt(
+            favorability_enabled=False,
+            sticker_enabled=True,
+            sticker_categories=["开心"],
+            sticker_condition="仅在用户主动庆祝时发送",
+        )
+        self.assertIn("发送条件：仅在用户主动庆祝时发送", prompt)
+
+        default_prompt = PromptManager.build_static_prompt(
+            favorability_enabled=False,
+            sticker_enabled=True,
+            sticker_categories=["开心"],
+            sticker_condition="",
+        )
+        self.assertIn(DEFAULT_STICKER_CONDITION, default_prompt)
+
     def test_eval_text_limit_is_enforced(self):
         self.assertTrue(validate_eval_text("刚刚聊得来"))
         self.assertTrue(validate_eval_text("一" * 20))
@@ -82,6 +100,7 @@ class ConfigSchemaTests(unittest.TestCase):
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
         for key in (
+            "sticker_condition",
             "favorability_prompt_core",
             "favorability_prompt_behavior",
             "favorability_prompt_mute",
