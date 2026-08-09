@@ -17,6 +17,17 @@
         "default": "仅当表情包能够自然表达当前情绪、语气或场景时发送；普通回复、信息性回复或没有合适分类时不要发送。",
         "hint": "自定义表情包发送条件。留空后重载插件会自动恢复默认条件。"
     },
+    "prompt_preset": {
+        "description": "好感度提示词预设",
+        "type": "string",
+        "default": "default",
+        "options": [
+            "default",
+            "old",
+            "custom"
+        ],
+        "hint": "default：当前拟人化规则；old：旧版风格规则；custom：使用下方四段自定义提示词。选择预设后会覆盖四段自定义提示词。"
+    },
     "mute_enabled": {
         "description": "禁言系统开关",
         "type": "bool",

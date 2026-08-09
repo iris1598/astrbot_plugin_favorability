@@ -68,6 +68,7 @@ pip install -r requirements.txt
 | `favorability_enabled` | `true` | 好感度系统开关 |
 | `sticker_enabled` | `true` | 表情包系统开关 |
 | `sticker_condition` | 仅在合适时发送… | 自定义表情包发送条件 |
+| `prompt_preset` | `default` | 好感度提示词预设：`default`、`old` 或 `custom` |
 | `mute_enabled` | `true` | 禁言系统开关 |
 | `mute_condition` | 持续恶劣行为… | 自定义禁言触发条件描述 |
 | `favorability_prompt_core` | 内置默认值 | 好感度标签格式与输出纪律 |
@@ -79,6 +80,7 @@ pip install -r requirements.txt
 | `render_theme` | `dark` | 图片主题，可选 `dark` 或 `light` |
 
 提示词配置使用多行文本框。任意提示词配置留空后，重载插件会自动回填并保存该段内置默认模板；禁言提示词中的 `{mute_condition}` 会自动替换为 `mute_condition` 配置内容。
+选择 `default` 使用当前拟人化提示词，选择 `old` 使用旧版风格提示词，选择 `custom` 才会使用下方四段自定义提示词。
 修改提示词或 `render_theme` 后重启或重载插件，使新配置生效。
 
 ## 好感度等级
@@ -149,6 +151,7 @@ python scripts/preview_render.py
 
 ## 版本历史
 
+- **v2.5.0**：新增 `default`、`old`、`custom` 好感度提示词预设
 - **v2.4.0**：新增表情包发送条件配置，优化好感度拟人化映射与指令事件隔离
 - **v2.3.0**：优化好感度提示词，支持核心规则、行为规则、禁言规则和安全规则分段配置
 - **v2.2.0**：重新设计图片渲染，新增亮暗双主题、透明 PNG、现代个人档案卡与排行榜

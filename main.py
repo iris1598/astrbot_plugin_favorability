@@ -27,6 +27,7 @@ from .services.sticker import StickerManager
 from .services.prompt import (
     DEFAULT_STICKER_CONDITION,
     FAVORABILITY_PROMPT_DEFAULTS,
+    PROMPT_PRESET_NAMES,
     PromptManager,
 )
 from .llm.handler import LLMHandler
@@ -38,7 +39,7 @@ from .commands.admin import AdminCommands
     "astrbot_plugin_favorability",
     "Iris1598",
     "好感度系统：AI根据对话内容自主更新用户好感度与评价，支持表情包回应、禁言处罚，PIL图片渲染",
-    "v2.4.0",
+    "v2.5.0",
 )
 class FavorabilityPlugin(Star):
     """好感度系统主插件。"""
@@ -126,6 +127,11 @@ class FavorabilityPlugin(Star):
     @property
     def sticker_condition(self) -> str:
         return str(self.config.get("sticker_condition", "") or "")
+
+    @property
+    def prompt_preset(self) -> str:
+        value = str(self.config.get("prompt_preset", "default") or "").strip().lower()
+        return value if value in PROMPT_PRESET_NAMES else "default"
 
     @property
     def mute_enabled(self) -> bool:

@@ -29,6 +29,7 @@ help: |
     - 好感度系统开关：启用/禁用好感度功能
     - 表情包系统开关：启用/禁用表情包功能
     - 表情包发送条件：自定义模型发送表情包的判断条件
+    - 好感度提示词预设：可选 default / old / custom
     - 禁言系统开关：启用/禁用禁言功能
     - 好感度核心提示词：配置标签格式与输出纪律
     - 好感度行为提示词：配置分数变化、等级区间与回复风格
@@ -37,6 +38,6 @@ help: |
     - 系统时间注入开关：启用后每次请求注入当前时间和星期几（通过 extra_user_content_parts）
     - 用户信息注入开关：启用后每次请求注入用户名和ID（通过 extra_user_content_parts）
     - 好感度卡片主题：可选 dark / light
-version: v2.3.0
+version: v2.5.0
 author: Iris1598
 repo: "https://github.com/iris1598/astrbot_plugin_favorability"

@@ -90,6 +90,29 @@ class PromptManagerTests(unittest.TestCase):
         )
         self.assertIn(DEFAULT_STICKER_CONDITION, default_prompt)
 
+    def test_prompt_presets_select_expected_rules(self):
+        default_prompt = PromptManager.build_static_prompt(
+            favorability_enabled=True,
+            sticker_enabled=False,
+            prompt_preset="default",
+        )
+        old_prompt = PromptManager.build_static_prompt(
+            favorability_enabled=True,
+            sticker_enabled=False,
+            prompt_preset="old",
+        )
+        custom_prompt = PromptManager.build_static_prompt(
+            favorability_enabled=True,
+            sticker_enabled=False,
+            prompt_preset="custom",
+            favorability_prompt_core="自定义核心规则",
+        )
+
+        self.assertIn("保持拟人化的连续性", default_prompt)
+        self.assertIn("爱人级", old_prompt)
+        self.assertNotIn("保持拟人化的连续性", old_prompt)
+        self.assertIn("自定义核心规则", custom_prompt)
+
     def test_eval_text_limit_is_enforced(self):
         self.assertTrue(validate_eval_text("刚刚聊得来"))
         self.assertTrue(validate_eval_text("一" * 20))
@@ -116,6 +139,10 @@ class ConfigSchemaTests(unittest.TestCase):
         ):
             self.assertEqual(schema[key]["type"], "text")
             self.assertTrue(schema[key]["default"])
+
+        self.assertEqual(schema["prompt_preset"]["type"], "string")
+        self.assertEqual(schema["prompt_preset"]["default"], "default")
+        self.assertEqual(schema["prompt_preset"]["options"], ["default", "old", "custom"])
 
 
 if __name__ == "__main__":
