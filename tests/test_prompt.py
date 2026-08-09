@@ -7,6 +7,7 @@ from services.prompt import (
     DEFAULT_STICKER_CONDITION,
     FAV_BEHAVIOR_PROMPT,
     FAV_CORE_PROMPT,
+    OLD_STICKER_CONDITION,
     FAV_SECURITY_PROMPT,
     PromptManager,
     format_system_time,
@@ -103,15 +104,32 @@ class PromptManagerTests(unittest.TestCase):
         )
         custom_prompt = PromptManager.build_static_prompt(
             favorability_enabled=True,
-            sticker_enabled=False,
+            sticker_enabled=True,
             prompt_preset="custom",
             favorability_prompt_core="自定义核心规则",
+            sticker_categories=["开心"],
+            sticker_condition="仅在用户主动庆祝时发送",
+        )
+        default_sticker_prompt = PromptManager.build_static_prompt(
+            favorability_enabled=False,
+            sticker_enabled=True,
+            sticker_categories=["开心"],
+            prompt_preset="default",
+        )
+        old_sticker_prompt = PromptManager.build_static_prompt(
+            favorability_enabled=False,
+            sticker_enabled=True,
+            sticker_categories=["开心"],
+            prompt_preset="old",
         )
 
         self.assertIn("保持拟人化的连续性", default_prompt)
         self.assertIn("爱人级", old_prompt)
         self.assertNotIn("保持拟人化的连续性", old_prompt)
         self.assertIn("自定义核心规则", custom_prompt)
+        self.assertIn(DEFAULT_STICKER_CONDITION, default_sticker_prompt)
+        self.assertIn(OLD_STICKER_CONDITION, old_sticker_prompt)
+        self.assertIn("仅在用户主动庆祝时发送", custom_prompt)
 
     def test_eval_text_limit_is_enforced(self):
         self.assertTrue(validate_eval_text("刚刚聊得来"))

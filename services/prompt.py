@@ -168,6 +168,7 @@ FAVORABILITY_PROMPT_DEFAULTS = {
 DEFAULT_STICKER_CONDITION = (
     "仅当表情包能够自然表达当前情绪、语气或场景时发送；普通回复、信息性回复或没有合适分类时不要发送。"
 )
+OLD_STICKER_CONDITION = "根据当前情绪选择合适的分类发送；如果不确定用哪个分类，可以不发送。"
 
 PROMPT_PRESET_NAMES = ("default", "old", "custom")
 
@@ -210,12 +211,12 @@ class PromptManager:
     ) -> str:
         """构建静态规则文本（追加到 system_prompt）。"""
         parts = []
+        preset = (prompt_preset or "custom").strip().lower()
         if favorability_enabled:
             def select_prompt(custom: str, default: str) -> str:
                 value = (custom or "").strip()
                 return value or default
 
-            preset = (prompt_preset or "custom").strip().lower()
             if preset == "default":
                 prompt_core = FAV_CORE_PROMPT
                 prompt_behavior = FAV_BEHAVIOR_PROMPT
@@ -251,7 +252,12 @@ class PromptManager:
                 parts.append(mute_prompt)
             parts.append(prompt_security)
         if sticker_enabled:
-            condition = sticker_condition or DEFAULT_STICKER_CONDITION
+            if preset == "default":
+                condition = DEFAULT_STICKER_CONDITION
+            elif preset == "old":
+                condition = OLD_STICKER_CONDITION
+            else:
+                condition = sticker_condition or DEFAULT_STICKER_CONDITION
             cat_str = (
                 f"可用分类：{', '.join(sticker_categories)}"
                 if sticker_categories
