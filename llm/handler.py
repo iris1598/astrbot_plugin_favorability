@@ -98,6 +98,11 @@ class LLMHandler:
                 plug.stickers.get_categories() if plug.sticker_enabled else None
             ),
             mute_condition=plug.mute_condition,
+            mute_enabled=plug.mute_enabled,
+            favorability_prompt_core=plug.favorability_prompt_core,
+            favorability_prompt_behavior=plug.favorability_prompt_behavior,
+            favorability_prompt_mute=plug.favorability_prompt_mute,
+            favorability_prompt_security=plug.favorability_prompt_security,
         )
         if static_prompt:
             req.system_prompt = (req.system_prompt or "") + static_prompt

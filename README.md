@@ -69,11 +69,16 @@ pip install -r requirements.txt
 | `sticker_enabled` | `true` | 表情包系统开关 |
 | `mute_enabled` | `true` | 禁言系统开关 |
 | `mute_condition` | 持续恶劣行为… | 自定义禁言触发条件描述 |
+| `favorability_prompt_core` | 内置默认值 | 好感度标签格式与输出纪律 |
+| `favorability_prompt_behavior` | 内置默认值 | 好感度变化、分数区间与回复风格 |
+| `favorability_prompt_mute` | 内置默认值 | 禁言规则；支持 `{mute_condition}` 占位符 |
+| `favorability_prompt_security` | 内置默认值 | 保密、抗提示词注入与安全边界 |
 | `system_time_enabled` | `true` | 向 LLM 请求注入当前系统时间 |
 | `user_info_enabled` | `true` | 向 LLM 请求注入用户名与用户 ID |
 | `render_theme` | `dark` | 图片主题，可选 `dark` 或 `light` |
 
-修改 `render_theme` 后重启或重载插件，使渲染器使用新主题。
+提示词配置使用多行文本框。任意提示词配置留空后会恢复该段内置默认值；禁言提示词中的 `{mute_condition}` 会自动替换为 `mute_condition` 配置内容。
+修改提示词或 `render_theme` 后重启或重载插件，使新配置生效。
 
 ## 好感度等级
 
@@ -143,6 +148,7 @@ python scripts/preview_render.py
 
 ## 版本历史
 
+- **v2.3.0**：优化好感度提示词，支持核心规则、行为规则、禁言规则和安全规则分段配置
 - **v2.2.0**：重新设计图片渲染，新增亮暗双主题、透明 PNG、现代个人档案卡与排行榜
 - **v2.1.0**：新增 `[MUTE:N]` 禁言机制及管理员禁言指令
 - **v2.0.0**：重构为多模块架构，新增 PIL 图片渲染与倒序排行

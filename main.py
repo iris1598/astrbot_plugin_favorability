@@ -34,7 +34,7 @@ from .commands.admin import AdminCommands
     "astrbot_plugin_favorability",
     "Iris1598",
     "好感度系统：AI根据对话内容自主更新用户好感度与评价，支持表情包回应、禁言处罚，PIL图片渲染",
-    "v2.2.0",
+    "v2.3.0",
 )
 class FavorabilityPlugin(Star):
     """好感度系统主插件。"""
@@ -99,6 +99,22 @@ class FavorabilityPlugin(Star):
     @property
     def mute_condition(self) -> str:
         return str(self.config.get("mute_condition", "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）"))
+
+    @property
+    def favorability_prompt_core(self) -> str:
+        return str(self.config.get("favorability_prompt_core", "") or "")
+
+    @property
+    def favorability_prompt_behavior(self) -> str:
+        return str(self.config.get("favorability_prompt_behavior", "") or "")
+
+    @property
+    def favorability_prompt_mute(self) -> str:
+        return str(self.config.get("favorability_prompt_mute", "") or "")
+
+    @property
+    def favorability_prompt_security(self) -> str:
+        return str(self.config.get("favorability_prompt_security", "") or "")
 
     @property
     def system_time_enabled(self) -> bool:
