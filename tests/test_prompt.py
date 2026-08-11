@@ -10,7 +10,10 @@ from services.prompt import (
     OLD_STICKER_CONDITION,
     FAV_SECURITY_PROMPT,
     PromptManager,
+    RE_FAV,
+    clean_tags_from_text,
     format_system_time,
+    validate_fav_value,
     validate_eval_text,
 )
 
@@ -135,6 +138,12 @@ class PromptManagerTests(unittest.TestCase):
         self.assertTrue(validate_eval_text("刚刚聊得来"))
         self.assertTrue(validate_eval_text("一" * 20))
         self.assertFalse(validate_eval_text("一" * 21))
+
+    def test_zero_fav_tags_are_removed_without_being_valid_changes(self):
+        for tag in ("[FAV:+0]", "[FAV:-0]", "[FAV:±0]"):
+            self.assertIsNotNone(RE_FAV.search(tag))
+            self.assertEqual(clean_tags_from_text(f"回复\n{tag}"), "回复")
+        self.assertFalse(validate_fav_value(0))
 
     def test_system_time_includes_chinese_weekday(self):
         self.assertEqual(

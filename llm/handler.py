@@ -186,12 +186,13 @@ class LLMHandler:
                     f"[favorability] 过滤非法 MUTE 值: {raw_seconds}s"
                 )
 
-        # 4. 解析并验证 FAV 值
-        raw_change = int(fav_match.group(1)) if fav_match else 0
-        if raw_change != 0 and not validate_fav_value(raw_change):
+        # 4. 解析并验证 FAV 值。兼容并清理模型误输出的“±0”，但不执行更新。
+        raw_fav = fav_match.group(1) if fav_match else None
+        raw_change = 0 if not raw_fav or raw_fav.startswith("±") else int(raw_fav)
+        if raw_fav and (raw_fav.startswith("±") or not validate_fav_value(raw_change)):
             # 超出范围则忽略 FAV 标记，仅保留 EVAL
             raw_change = 0
-            logger.warning(f"[favorability] 过滤非法 FAV 值: {raw_change}，仅处理 EVAL")
+            logger.warning(f"[favorability] 过滤非法 FAV 值: {raw_fav}，仅处理 EVAL")
         change = max(-5, min(5, raw_change))
 
         # 5. 解析并验证 EVAL
