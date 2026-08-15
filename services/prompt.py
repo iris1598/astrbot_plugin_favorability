@@ -171,6 +171,11 @@ DEFAULT_STICKER_CONDITION = (
 )
 OLD_STICKER_CONDITION = "根据当前情绪选择合适的分类发送；如果不确定用哪个分类，可以不发送。"
 
+# 消息末尾互动提示（注入到 extra_user_content_parts 末尾，可在 WebUI 设置中自定义）
+DEFAULT_INTERACTION_HINT = (
+    "【好感度系统】请按已注入的好感度规则处理本次互动；需要使用标签时仅放在回复末尾。"
+)
+
 PROMPT_PRESET_NAMES = ("default", "old", "custom")
 
 WEEKDAY_NAMES = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
@@ -284,8 +289,28 @@ class PromptManager:
         sender_id: Optional[str] = None,
         is_muted: bool = False,
         mute_remaining: float = 0,
+        interaction_hint_enabled: bool = True,
+        interaction_hint_text: str = DEFAULT_INTERACTION_HINT,
     ) -> Optional[str]:
-        """构建动态上下文文本（注入到 extra_user_content_parts）。"""
+        """构建动态上下文文本（注入到 extra_user_content_parts）。
+
+        Args:
+            favorability_enabled: 好感度系统是否开启。
+            system_time_enabled: 是否注入系统时间。
+            user_info_enabled: 是否注入用户信息。
+            score: 当前好感度分数。
+            eval_text: 当前印象描述。
+            time_str: 格式化后的系统时间。
+            sender_name: 发送者昵称。
+            sender_id: 发送者 ID。
+            is_muted: 用户是否处于禁言状态。
+            mute_remaining: 禁言剩余秒数。
+            interaction_hint_enabled: 是否在消息末尾追加互动提示。
+            interaction_hint_text: 互动提示文本，留空则不追加。
+
+        Returns:
+            动态上下文文本；无任何内容时返回 None。
+        """
         lines = []
         if favorability_enabled and score is not None:
             lines.append(f"好感度：{score}")
@@ -299,9 +324,10 @@ class PromptManager:
                 lines.append(f"用户名：{sender_name}")
             if sender_id:
                 lines.append(f"用户ID：{sender_id}")
-        # 标签提醒（仅好感度启用时）
-        if favorability_enabled and lines:
-            lines.append("【好感度系统】请按已注入的好感度规则处理本次互动；需要使用标签时仅放在回复末尾。")
+        # 消息末尾互动提示（仅好感度启用且开关开启、文本非空时追加）
+        hint = (interaction_hint_text or "").strip() if interaction_hint_enabled else ""
+        if favorability_enabled and lines and hint:
+            lines.append(hint)
         if not lines:
             return None
         return DYNAMIC_CONTEXT_TPL.format(lines="\n".join(lines))

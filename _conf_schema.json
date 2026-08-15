@@ -20,6 +20,12 @@
                 "type": "bool",
                 "default": true,
                 "hint": "开启后 LLM 可根据用户恶劣行为输出 [MUTE:N] 标签进行禁言处罚"
+            },
+            "interaction_hint_enabled": {
+                "description": "消息末尾互动提示开关",
+                "type": "bool",
+                "default": true,
+                "hint": "开启后会在每次请求的用户消息末尾注入互动提示，提醒模型按已注入的规则处理互动并只在回复末尾使用标签"
             }
         }
     },
@@ -90,6 +96,15 @@
                 "hint": "仅在选择 custom 时显示；留空时恢复内置默认提示词。",
                 "condition": {
                     "prompt_preset": "custom"
+                }
+            },
+            "interaction_hint_text": {
+                "description": "消息末尾互动提示文本",
+                "type": "text",
+                "default": "【好感度系统】请按已注入的好感度规则处理本次互动；需要使用标签时仅放在回复末尾。",
+                "hint": "仅在消息末尾互动提示开关开启时显示；自定义注入到消息末尾的提示文本，留空后重载插件会自动恢复默认提示。",
+                "condition": {
+                    "interaction_hint_enabled": true
                 }
             }
         }

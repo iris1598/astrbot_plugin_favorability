@@ -25,6 +25,7 @@ from astrbot.api import AstrBotConfig, logger
 from .models.manager import FavorabilityManager
 from .services.sticker import StickerManager
 from .services.prompt import (
+    DEFAULT_INTERACTION_HINT,
     DEFAULT_STICKER_CONDITION,
     FAVORABILITY_PROMPT_DEFAULTS,
     PROMPT_PRESET_NAMES,
@@ -39,7 +40,7 @@ from .commands.admin import AdminCommands
     "astrbot_plugin_favorability",
     "Iris1598",
     "好感度系统：AI根据对话内容自主更新用户好感度与评价，支持表情包回应、禁言处罚，PIL图片渲染",
-    "v2.5.0",
+    "v2.6.0",
 )
 class FavorabilityPlugin(Star):
     _SETTING_GROUPS = {
@@ -53,6 +54,8 @@ class FavorabilityPlugin(Star):
         "favorability_prompt_behavior": "prompt_settings",
         "favorability_prompt_mute": "prompt_settings",
         "favorability_prompt_security": "prompt_settings",
+        "interaction_hint_enabled": "feature_settings",
+        "interaction_hint_text": "prompt_settings",
         "system_time_enabled": "context_settings",
         "user_info_enabled": "context_settings",
         "render_theme": "render_settings",
@@ -161,6 +164,7 @@ class FavorabilityPlugin(Star):
         prompt_defaults = {
             **FAVORABILITY_PROMPT_DEFAULTS,
             "sticker_condition": DEFAULT_STICKER_CONDITION,
+            "interaction_hint_text": DEFAULT_INTERACTION_HINT,
         }
         for key, default in prompt_defaults.items():
             value = self._get_setting(key, "")
@@ -229,6 +233,17 @@ class FavorabilityPlugin(Star):
     @property
     def user_info_enabled(self) -> bool:
         return bool(self._get_setting("user_info_enabled", True))
+
+    @property
+    def interaction_hint_enabled(self) -> bool:
+        return bool(self._get_setting("interaction_hint_enabled", True))
+
+    @property
+    def interaction_hint_text(self) -> str:
+        return str(
+            self._get_setting("interaction_hint_text", DEFAULT_INTERACTION_HINT)
+            or DEFAULT_INTERACTION_HINT
+        )
 
     def keys(self, event: AstrMessageEvent) -> tuple[str, str]:
         """返回 (group_key, user_id)。"""

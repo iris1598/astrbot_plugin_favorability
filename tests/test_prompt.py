@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from services.prompt import (
+    DEFAULT_INTERACTION_HINT,
     DEFAULT_STICKER_CONDITION,
     FAV_BEHAVIOR_PROMPT,
     FAV_CORE_PROMPT,
@@ -151,6 +152,43 @@ class PromptManagerTests(unittest.TestCase):
             "2026-08-09 14:30:00 星期日",
         )
 
+    def test_interaction_hint_can_be_toggled_and_customized(self):
+        base = dict(
+            favorability_enabled=True,
+            system_time_enabled=False,
+            user_info_enabled=False,
+            score=30,
+            eval_text="聊得来",
+        )
+
+        # 默认：开关开启时在消息末尾追加默认互动提示
+        default_ctx = PromptManager.build_dynamic_context(**base)
+        self.assertIn(DEFAULT_INTERACTION_HINT, default_ctx)
+        self.assertTrue(
+            default_ctx.rstrip().endswith(
+                f"{DEFAULT_INTERACTION_HINT}\n</dynamic_context>"
+            )
+        )
+
+        # 关闭开关：不再追加互动提示
+        disabled_ctx = PromptManager.build_dynamic_context(
+            **base, interaction_hint_enabled=False
+        )
+        self.assertNotIn("【好感度系统】", disabled_ctx)
+
+        # 自定义提示文本
+        custom_ctx = PromptManager.build_dynamic_context(
+            **base, interaction_hint_text="自定义互动提示"
+        )
+        self.assertIn("自定义互动提示", custom_ctx)
+        self.assertNotIn(DEFAULT_INTERACTION_HINT, custom_ctx)
+
+        # 文本留空：不追加互动提示
+        empty_ctx = PromptManager.build_dynamic_context(
+            **base, interaction_hint_text="   "
+        )
+        self.assertNotIn("【好感度系统】", empty_ctx)
+
 
 class ConfigSchemaTests(unittest.TestCase):
     def test_prompt_config_schema(self):
@@ -177,7 +215,12 @@ class ConfigSchemaTests(unittest.TestCase):
         self.assertLess(schema_keys.index("prompt_preset"), schema_keys.index("mute_condition"))
 
         expected_groups = {
-            "feature_settings": ["favorability_enabled", "sticker_enabled", "mute_enabled"],
+            "feature_settings": [
+                "favorability_enabled",
+                "sticker_enabled",
+                "mute_enabled",
+                "interaction_hint_enabled",
+            ],
             "prompt_settings": [
                 "prompt_preset",
                 "mute_condition",
@@ -186,6 +229,7 @@ class ConfigSchemaTests(unittest.TestCase):
                 "favorability_prompt_behavior",
                 "favorability_prompt_mute",
                 "favorability_prompt_security",
+                "interaction_hint_text",
             ],
             "context_settings": ["system_time_enabled", "user_info_enabled"],
             "render_settings": ["render_theme"],
@@ -206,6 +250,22 @@ class ConfigSchemaTests(unittest.TestCase):
                 schema["prompt_settings"]["items"][key]["condition"],
                 {"prompt_preset": "custom"},
             )
+
+        self.assertEqual(
+            schema["feature_settings"]["items"]["interaction_hint_enabled"]["type"],
+            "bool",
+        )
+        self.assertTrue(
+            schema["feature_settings"]["items"]["interaction_hint_enabled"]["default"]
+        )
+        self.assertEqual(
+            schema["prompt_settings"]["items"]["interaction_hint_text"]["type"], "text"
+        )
+        self.assertTrue(schema["prompt_settings"]["items"]["interaction_hint_text"]["default"])
+        self.assertEqual(
+            schema["prompt_settings"]["items"]["interaction_hint_text"]["condition"],
+            {"interaction_hint_enabled": True},
+        )
 
         self.assertTrue(schema["_config_layout_version"]["invisible"])
         for key in (

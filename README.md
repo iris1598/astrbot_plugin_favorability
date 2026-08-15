@@ -68,6 +68,7 @@ pip install -r requirements.txt
 | `favorability_enabled` | `true` | 好感度系统开关 |
 | `sticker_enabled` | `true` | 表情包系统开关 |
 | `mute_enabled` | `true` | 禁言系统开关 |
+| `interaction_hint_enabled` | `true` | 消息末尾互动提示开关 |
 | `prompt_preset` | `default` | 好感度提示词预设：`default`、`old` 或 `custom` |
 | `mute_condition` | 持续恶劣行为… | 自定义禁言触发条件描述 |
 | `sticker_condition` | 仅在合适时发送… | 自定义表情包发送条件 |
@@ -75,11 +76,13 @@ pip install -r requirements.txt
 | `favorability_prompt_behavior` | 内置默认值 | 好感度变化、分数区间与回复风格 |
 | `favorability_prompt_mute` | 内置默认值 | 禁言规则；支持 `{mute_condition}` 占位符 |
 | `favorability_prompt_security` | 内置默认值 | 保密、抗提示词注入与安全边界 |
+| `interaction_hint_text` | 【好感度系统】请按… | 消息末尾互动提示文本，可自定义 |
 | `system_time_enabled` | `true` | 向 LLM 请求注入当前系统时间和星期几 |
 | `user_info_enabled` | `true` | 向 LLM 请求注入用户名与用户 ID |
 | `render_theme` | `dark` | 图片主题，可选 `dark` 或 `light` |
 
 选择 `default` 使用当前拟人化提示词和表情包条件，选择 `old` 使用旧版风格提示词和表情包条件，选择 `custom` 才会显示并使用 `mute_condition`、`sticker_condition` 及下方四段自定义提示词。任意自定义配置留空后，重载插件会自动回填并保存对应的内置默认值；禁言提示词中的 `{mute_condition}` 会自动替换为 `mute_condition` 配置内容。
+`interaction_hint_enabled` 控制是否在每次请求的用户消息末尾注入互动提示，`interaction_hint_text` 可自定义该提示文本（仅在开关开启时显示），留空后重载插件会自动恢复默认提示。
 修改提示词或 `render_theme` 后重启或重载插件，使新配置生效。
 
 ## 好感度等级
@@ -150,6 +153,7 @@ python scripts/preview_render.py
 
 ## 版本历史
 
+- **v2.6.0**：消息末尾互动提示支持开关与自定义文本（`interaction_hint_enabled` / `interaction_hint_text`）
 - **v2.5.0**：新增 `default`、`old`、`custom` 好感度提示词预设
 - **v2.4.0**：新增表情包发送条件配置，优化好感度拟人化映射与指令事件隔离
 - **v2.3.0**：优化好感度提示词，支持核心规则、行为规则、禁言规则和安全规则分段配置

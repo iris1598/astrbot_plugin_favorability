@@ -130,6 +130,8 @@ class LLMHandler:
             sender_id=event.get_sender_id() if plug.user_info_enabled else None,
             is_muted=is_muted,
             mute_remaining=mute_remaining,
+            interaction_hint_enabled=plug.interaction_hint_enabled,
+            interaction_hint_text=plug.interaction_hint_text,
         )
         if dynamic_text:
             req.extra_user_content_parts.append(TextPart(text=dynamic_text))
