@@ -82,7 +82,7 @@ pip install -r requirements.txt
 | `render_theme` | `dark` | 图片主题，可选 `dark` 或 `light` |
 
 选择 `default` 使用当前拟人化提示词和表情包条件，选择 `old` 使用旧版风格提示词和表情包条件，选择 `custom` 才会显示并使用 `mute_condition`、`sticker_condition` 及下方四段自定义提示词。任意自定义配置留空后，重载插件会自动回填并保存对应的内置默认值；禁言提示词中的 `{mute_condition}` 会自动替换为 `mute_condition` 配置内容。
-`interaction_hint_enabled` 控制是否在每次请求的用户消息末尾注入互动提示，`interaction_hint_text` 可自定义该提示文本（仅在开关开启时显示），留空后重载插件会自动恢复默认提示。
+`interaction_hint_enabled` 控制是否在每次请求的用户消息末尾注入互动提示，`interaction_hint_text` 可自定义该提示文本（需开启上述开关后生效），留空后重载插件会自动恢复默认提示。
 修改提示词或 `render_theme` 后重启或重载插件，使新配置生效。
 
 ## 好感度等级

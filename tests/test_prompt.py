@@ -262,9 +262,9 @@ class ConfigSchemaTests(unittest.TestCase):
             schema["prompt_settings"]["items"]["interaction_hint_text"]["type"], "text"
         )
         self.assertTrue(schema["prompt_settings"]["items"]["interaction_hint_text"]["default"])
-        self.assertEqual(
-            schema["prompt_settings"]["items"]["interaction_hint_text"]["condition"],
-            {"interaction_hint_enabled": True},
+        # 跨组 condition 在 WebUI 中不生效，因此该文本项不应带 condition
+        self.assertNotIn(
+            "condition", schema["prompt_settings"]["items"]["interaction_hint_text"]
         )
 
         self.assertTrue(schema["_config_layout_version"]["invisible"])
