@@ -47,6 +47,27 @@ def extract_user_id(raw: str) -> str:
     return raw  # 无法提取时原样返回
 
 
+def group_storage_key(umo: str, sender_id: str) -> str:
+    """把会话隔离(unique_session)的每用户群 UMO 归一化为群级存储键。
+
+    官方隔离开启后群聊 UMO 形如 {平台}:GroupMessage:{用户}_{群}，
+    好感度数据（排行/禁言/成员档案）本应按群共享一个桶，因此剥掉
+    发话者前缀还原为 {平台}:GroupMessage:{群}。
+
+    - 私聊/webchat 等非群 UMO 原样返回（本就是用户级）。
+    - 仅当 session_id 恰好以 "{sender_id}_" 开头时才剥离，
+      其他平台（群号本身不含该模式）不受影响。
+    """
+    parts = umo.split(":", 2)
+    if len(parts) != 3 or parts[1] != "GroupMessage":
+        return umo
+    sid = parts[2]
+    prefix = f"{sender_id}_"
+    if sender_id and sid.startswith(prefix) and len(sid) > len(prefix):
+        return f"{parts[0]}:{parts[1]}:{sid[len(prefix):]}"
+    return umo
+
+
 class FavorabilityManager:
     """好感度数据管理器，负责 CRUD 和持久化。"""
 

@@ -22,7 +22,7 @@ from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api import AstrBotConfig, logger
 
-from .models.manager import FavorabilityManager
+from .models.manager import FavorabilityManager, group_storage_key
 from .services.sticker import StickerManager
 from .services.prompt import (
     DEFAULT_INTERACTION_HINT,
@@ -246,9 +246,14 @@ class FavorabilityPlugin(Star):
         )
 
     def keys(self, event: AstrMessageEvent) -> tuple[str, str]:
-        """返回 (group_key, user_id)。"""
+        """返回 (group_key, user_id)。
+
+        官方会话隔离(unique_session)开启后群聊 UMO 变为每人一个
+        {平台}:GroupMessage:{用户}_{群}，而好感度（排行/禁言/互相查询）
+        必须按群共享存储，这里统一归一化回群级键；私聊/webchat 不受影响。
+        """
         user_id = str(event.get_sender_id())
-        group_key = event.unified_msg_origin
+        group_key = group_storage_key(event.unified_msg_origin, user_id)
         return group_key, user_id
 
     # ── LLM 事件钩子 ───────────────────────────────────────
