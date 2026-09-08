@@ -5,6 +5,8 @@
   - /查询好感度 [@用户] — 查询好感度（查自己或@他人）
   - /好感度排行 — 查看当前会话的排行榜（前10名，PIL图片）
   - /重置好感度 — 重置自己的好感度
+  - /确认关系 — 确认待生效的关系变动提议
+  - /取消关系 — 拒绝待生效的关系变动提议
 """
 
 from astrbot.api import logger
@@ -53,6 +55,8 @@ class UserCommands:
         info = plug.db.get_user_info(group_key, target_id)
         score = info["score"]
         evaluation = info["eval"]
+        relation = info.get("relation") or plug.db.DEFAULT_RELATION
+        pending_rel = plug.db.effective_pending(info)
 
         # 尝试 PIL 图片渲染
         if plug.has_renderer:
@@ -64,15 +68,25 @@ class UserCommands:
                     user_id=target_id,
                     score=score,
                     evaluation=evaluation,
+                    relation=relation,
                 )
                 yield event.image_result(img_path)
                 return
             except Exception as e:
                 logger.error(f"[favorability] 查询图片渲染失败，回退文本: {e}")
 
-        yield event.plain_result(
-            f"📊 {label}的好感度档案\n分数：{score}\n评价：{evaluation}"
+        msg = (
+            f"📊 {label}的好感度档案\n"
+            f"分数：{score}\n"
+            f"关系：{relation}\n"
+            f"评价：{evaluation}"
         )
+        if target_id == self_id and pending_rel:
+            msg += (
+                f"\n⏳ 待确认的关系变动：「{pending_rel['from']}」→"
+                f"「{pending_rel['to']}」（回复「确认关系」或「取消关系」）"
+            )
+        yield event.plain_result(msg)
 
     # ── 好感度正序（高分在前） ───────────────────────────
 
@@ -160,3 +174,45 @@ class UserCommands:
         group_key, user_id = plug.keys(event)
         await plug.db.reset_user(group_key, user_id)
         yield event.plain_result("✨ 记忆已重置，现在的你对我来说就像一张白纸。")
+
+    # ── 确认/取消关系变动 ──────────────────────────────────
+
+    async def cmd_confirm_relation(self, event: AstrMessageEvent):
+        """确认待生效的关系变动提议。"""
+        plug = self.plugin
+        if not plug.relation_enabled or not plug.favorability_enabled:
+            yield event.plain_result("❌ 关系系统未启用。")
+            return
+        group_key, user_id = plug.keys(event)
+        result = await plug.db.confirm_relation(group_key, user_id)
+        status = result.get("status")
+        if status == "applied":
+            up = plug.db.RELATION_LEVELS.index(result["to"]) > plug.db.RELATION_LEVELS.index(
+                result["from"]
+            )
+            emoji = "💞" if up else "💔"
+            yield event.plain_result(
+                f"{emoji} 关系已变更：「{result['from']}」→「{result['to']}」"
+            )
+        elif status == "expired":
+            yield event.plain_result("⌛ 那个关系提议已经过期失效了。")
+        elif status == "stale":
+            yield event.plain_result("⚠️ 关系状态已发生变化，该提议已自动作废。")
+        else:
+            yield event.plain_result("🤔 当前没有待确认的关系变动。")
+
+    async def cmd_cancel_relation(self, event: AstrMessageEvent):
+        """拒绝待生效的关系变动提议。"""
+        plug = self.plugin
+        if not plug.relation_enabled or not plug.favorability_enabled:
+            yield event.plain_result("❌ 关系系统未启用。")
+            return
+        group_key, user_id = plug.keys(event)
+        pending = await plug.db.reject_relation(group_key, user_id)
+        if pending:
+            yield event.plain_result(
+                f"🙅 已拒绝对方的关系提议：「{pending['from']}」→「{pending['to']}」，"
+                f"关系保持为「{pending['from']}」。"
+            )
+        else:
+            yield event.plain_result("🤔 当前没有待确认的关系变动。")

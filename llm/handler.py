@@ -2,9 +2,11 @@
 LLM 请求/响应处理模块 - LLMHandler
 
 职责：
-1. on_llm_request：向 LLM 注入好感度系统规则（静态→system_prompt）与动态状态（→extra_user_content_parts）
+1. on_llm_request：向 LLM 注入好感度系统规则（静态→system_prompt，含当前关系档位的
+   行为准则）与动态状态（→extra_user_content_parts）；
    同时检查禁言状态，若被禁言则阻断 LLM 请求并发送"不理你"式回复
-2. on_llm_response：解析 LLM 响应中的 FAV/EVAL/STK/MUTE 标签，更新数据库并异步发送补充消息
+2. on_llm_response：解析 LLM 响应中的 FAV/EVAL/REL/STK/MUTE 标签，更新数据库并异步发送补充消息；
+   REL 标签仅创建待确认的关系变动提议，需用户使用「确认关系」指令确认后才生效
 """
 
 import asyncio
@@ -22,7 +24,9 @@ from ..services.prompt import (
     RE_EVAL,
     RE_STK,
     RE_MUTE,
+    RE_REL,
     clean_tags_from_text,
+    normalize_rel_direction,
     validate_fav_value,
     validate_eval_text,
     validate_mute_seconds,
@@ -91,7 +95,19 @@ class LLMHandler:
         if not plug.favorability_enabled and not plug.sticker_enabled:
             return
 
-        # 第一部分：静态规则 → system_prompt
+        # 先读取用户状态（关系档位与待确认提议需要按用户注入）
+        user_info = None
+        if plug.favorability_enabled:
+            user_info = plug.db.get_user_info(group_key, user_id)
+
+        # old 预设保持旧版“分数即关系”一体化规则，不启用关系系统
+        relation_active = (
+            plug.favorability_enabled
+            and plug.relation_enabled
+            and plug.prompt_preset != "old"
+        )
+
+        # 第一部分：静态规则 → system_prompt（只注入当前关系档位的准则）
         static_prompt = PromptManager.build_static_prompt(
             favorability_enabled=plug.favorability_enabled,
             sticker_enabled=plug.sticker_enabled,
@@ -102,25 +118,29 @@ class LLMHandler:
             mute_enabled=plug.mute_enabled,
             favorability_prompt_core=plug.favorability_prompt_core,
             favorability_prompt_behavior=plug.favorability_prompt_behavior,
+            favorability_prompt_relation=plug.favorability_prompt_relation,
             favorability_prompt_mute=plug.favorability_prompt_mute,
             favorability_prompt_security=plug.favorability_prompt_security,
             sticker_condition=plug.sticker_condition,
             prompt_preset=plug.prompt_preset,
+            relation_enabled=relation_active,
+            relation=(user_info or {}).get("relation", ""),
         )
         if static_prompt:
             req.system_prompt = (req.system_prompt or "") + static_prompt
 
         # 第二部分：动态状态 → extra_user_content_parts
-        user_info = None
-        if plug.favorability_enabled:
-            user_info = plug.db.get_user_info(group_key, user_id)
-
         dynamic_text = PromptManager.build_dynamic_context(
             favorability_enabled=plug.favorability_enabled,
             system_time_enabled=plug.system_time_enabled,
             user_info_enabled=plug.user_info_enabled,
             score=user_info.get("score") if user_info else None,
             eval_text=user_info.get("eval") if user_info else None,
+            relation=user_info.get("relation") if user_info else None,
+            relation_enabled=relation_active,
+            pending_rel=(
+                plug.db.effective_pending(user_info) if user_info else None
+            ),
             time_str=(
                 format_system_time(datetime.now())
                 if plug.system_time_enabled
@@ -150,12 +170,19 @@ class LLMHandler:
         eval_match = RE_EVAL.search(original)
         stk_matches = RE_STK.findall(original)
         mute_match = RE_MUTE.search(original)
+        rel_match = RE_REL.search(original)
 
         # 2. 清理文本（移除所有标记）
         clean_text = clean_tags_from_text(original)
         resp.completion_text = clean_text
 
-        if not fav_match and not eval_match and not stk_matches and not mute_match:
+        if (
+            not fav_match
+            and not eval_match
+            and not stk_matches
+            and not mute_match
+            and not rel_match
+        ):
             return
 
         plug = self.plugin
@@ -164,9 +191,45 @@ class LLMHandler:
         handle_favor = plug.favorability_enabled and (fav_match or eval_match)
         handle_sticker = plug.sticker_enabled and bool(stk_matches)
         handle_mute = plug.mute_enabled and bool(mute_match)
+        handle_rel = (
+            plug.favorability_enabled
+            and plug.relation_enabled
+            and plug.prompt_preset != "old"
+            and bool(rel_match)
+        )
 
-        if not handle_favor and not handle_sticker and not handle_mute:
+        if not handle_favor and not handle_sticker and not handle_mute and not handle_rel:
             return
+
+        # 2.5 处理关系变动提议：只创建“待用户确认”的提议，不直接改关系
+        rel_result = None
+        if handle_rel:
+            direction = normalize_rel_direction(rel_match.group(1))
+            if direction:
+                rel_result = await plug.db.propose_relation(
+                    group_key,
+                    user_id,
+                    direction,
+                    user_name=event.get_sender_name(),
+                )
+                if rel_result.get("status") == "ok":
+                    p = rel_result["pending"]
+                    logger.info(
+                        f"[favorability] 用户 {user_id} 关系提议待确认: "
+                        f"{p['from']} -> {p['to']} ({direction})"
+                    )
+                elif rel_result.get("status") == "low_score_rejected":
+                    logger.info(
+                        f"[favorability] 用户 {user_id} 好感度为负({rel_result.get('current_score')})，拦截异常升级提议"
+                    )
+                elif rel_result.get("status") == "cooldown":
+                    logger.debug(
+                        f"[favorability] 用户 {user_id} 关系提议处于冷却中(剩余 {rel_result.get('remaining')}s)"
+                    )
+            else:
+                logger.warning(
+                    f"[favorability] 无法识别的 REL 方向: {rel_match.group(1)}"
+                )
 
         # 3. 处理禁言
         if handle_mute:
@@ -207,7 +270,7 @@ class LLMHandler:
                 logger.warning(f"[favorability] 过滤非法 EVAL 文本: {raw_eval[:30]}")
 
         # 6. 校验：如果 change == 0 且 new_eval 为 None，说明无有效操作
-        if change == 0 and new_eval is None and not stk_matches:
+        if change == 0 and new_eval is None and not stk_matches and rel_result is None:
             return
 
         # 7. 更新数据库
@@ -236,6 +299,7 @@ class LLMHandler:
                 new_eval,
                 user_data,
                 stk_matches,
+                rel_result,
             )
         )
 
@@ -251,8 +315,9 @@ class LLMHandler:
         new_eval: str | None,
         user_data: dict | None,
         stk_matches: list[str],
+        rel_result: dict | None = None,
     ):
-        """延迟发送好感度变化提示和表情包。"""
+        """延迟发送好感度变化提示、关系变动确认请求和表情包。"""
         await asyncio.sleep(0.5)
         umo = event.unified_msg_origin
 
@@ -270,6 +335,15 @@ class LLMHandler:
                 except Exception as e:
                     logger.error(f"[favorability] 提示发送失败: {e}")
 
+        if rel_result:
+            text = self._build_rel_notice(rel_result)
+            if text:
+                try:
+                    mc = MessageChain().message(text)
+                    await plug.context.send_message(umo, mc)
+                except Exception as e:
+                    logger.error(f"[favorability] 关系确认提示发送失败: {e}")
+
         if handle_sticker:
             for cat in stk_matches:
                 img_path = plug.stickers.get_random_sticker(cat.strip())
@@ -279,6 +353,27 @@ class LLMHandler:
                         await plug.context.send_message(umo, mc)
                     except Exception as e:
                         logger.error(f"[favorability] 表情包发送失败: {e}")
+
+    def _build_rel_notice(self, rel_result: dict) -> str | None:
+        """根据关系提议结果生成发给用户的确认提示文本。"""
+        status = rel_result.get("status")
+        minutes = max(1, self.plugin.db.RELATION_PENDING_TTL // 60)
+        if status == "ok":
+            p = rel_result["pending"]
+            if p.get("direction") == "up":
+                lead = f"💞 TA 想和你们的关系更进一步：「{p['from']}」→「{p['to']}」"
+            else:
+                lead = f"💔 TA 觉得你们之间也许该保持一些距离：「{p['from']}」→「{p['to']}」"
+            return (
+                f"{lead}\n回复「确认关系」接受，或「取消关系」拒绝（{minutes} 分钟内有效）"
+            )
+        if status == "already_pending":
+            p = rel_result.get("pending") or {}
+            return (
+                f"⏳ TA 刚才已经提议「{p.get('from', '')}」→「{p.get('to', '')}」，"
+                f"先回复「确认关系」或「取消关系」吧（{minutes} 分钟内有效）。"
+            )
+        return None
 
     async def _send_mute_notice(
         self,

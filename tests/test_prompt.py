@@ -8,12 +8,18 @@ from services.prompt import (
     DEFAULT_STICKER_CONDITION,
     FAV_BEHAVIOR_PROMPT,
     FAV_CORE_PROMPT,
+    FAV_RELATION_PROMPT,
     OLD_STICKER_CONDITION,
     FAV_SECURITY_PROMPT,
+    RELATION_GUIDELINES,
     PromptManager,
     RE_FAV,
+    RE_REL,
+    build_relation_guideline,
     clean_tags_from_text,
     format_system_time,
+    normalize_rel_direction,
+    score_to_attitude,
     validate_fav_value,
     validate_eval_text,
 )
@@ -74,7 +80,7 @@ class PromptManagerTests(unittest.TestCase):
             sticker_enabled=True,
             sticker_categories=["开心"],
         )
-        self.assertNotIn("好感度行为规则", sticker_only)
+        self.assertNotIn("好感度数值规则", sticker_only)
         self.assertNotIn("[FAV:±N]", sticker_only)
         self.assertIn("[STK:分类名]", sticker_only)
 
@@ -190,6 +196,114 @@ class PromptManagerTests(unittest.TestCase):
         self.assertNotIn("【好感度系统】", empty_ctx)
 
 
+class RelationSystemTests(unittest.TestCase):
+    def test_rel_tag_parsing_and_cleaning(self):
+        for tag, direction in (
+            ("[REL:up]", "up"),
+            ("[REL:down]", "down"),
+            ("[rel:UP]", "up"),
+            ("[REL:升]", "up"),
+            ("[REL:降]", "down"),
+            ("**[REL:up]**", "up"),
+            ("【REL:up】", "up"),
+        ):
+            m = RE_REL.search(f"回复\n{tag}")
+            self.assertIsNotNone(m)
+            self.assertEqual(normalize_rel_direction(m.group(1)), direction)
+            self.assertEqual(clean_tags_from_text(f"回复\n{tag}"), "回复")
+
+    def test_bold_and_fullwidth_tags_cleaning(self):
+        text = "你好啊！这是**加粗正文**与`代码块`。\n**[FAV:+2]**\n【EVAL:特别有趣】\n**[STK:开心]**\n【MUTE:60】"
+        cleaned = clean_tags_from_text(text)
+        self.assertEqual(cleaned, "你好啊！这是**加粗正文**与`代码块`。")
+
+    def test_mute_prompt_has_no_score_requirement(self):
+        from services.prompt import FAV_MUTE_PROMPT
+        self.assertNotIn("-20", FAV_MUTE_PROMPT)
+        self.assertNotIn("好感度不高于", FAV_MUTE_PROMPT)
+
+    def test_score_to_attitude_bands(self):
+        self.assertEqual(score_to_attitude(80), "热忱亲昵")
+        self.assertEqual(score_to_attitude(60), "温和热情")
+        self.assertEqual(score_to_attitude(30), "轻快友好")
+        self.assertEqual(score_to_attitude(0), "平静礼貌")
+        self.assertEqual(score_to_attitude(-30), "略显微慢")
+        self.assertEqual(score_to_attitude(-60), "冷淡克制")
+        self.assertEqual(score_to_attitude(-90), "冰冷疏离")
+
+    def test_only_current_relation_guideline_injected(self):
+        prompt = PromptManager.build_static_prompt(
+            favorability_enabled=True,
+            sticker_enabled=False,
+            prompt_preset="default",
+            relation="亲密朋友",
+        )
+        self.assertIn("当前关系行为准则（亲密朋友）", prompt)
+        self.assertIn(RELATION_GUIDELINES["亲密朋友"], prompt)
+        self.assertIn(FAV_RELATION_PROMPT, prompt)
+        # 其他档位准则不应出现
+        for name, text in RELATION_GUIDELINES.items():
+            if name != "亲密朋友":
+                self.assertNotIn(text, prompt)
+        self.assertNotIn("当前关系行为准则（亲密无间）", prompt)
+
+    def test_relation_section_respects_switch_and_preset(self):
+        disabled = PromptManager.build_static_prompt(
+            favorability_enabled=True,
+            sticker_enabled=False,
+            prompt_preset="default",
+            relation="亲密朋友",
+            relation_enabled=False,
+        )
+        self.assertNotIn("当前关系行为准则（", disabled)
+
+        old_preset = PromptManager.build_static_prompt(
+            favorability_enabled=True,
+            sticker_enabled=False,
+            prompt_preset="old",
+            relation="亲密朋友",
+        )
+        self.assertNotIn("当前关系行为准则（", old_preset)
+        self.assertNotIn("[REL:up]", old_preset)
+
+    def test_dynamic_context_includes_relation_state(self):
+        ctx = PromptManager.build_dynamic_context(
+            favorability_enabled=True,
+            system_time_enabled=False,
+            user_info_enabled=False,
+            score=55,
+            eval_text="聊得来",
+            relation="亲密朋友",
+            pending_rel={
+                "direction": "up",
+                "from": "亲密朋友",
+                "to": "亲密无间",
+                "expires_at": 0,
+            },
+        )
+        self.assertIn("好感度：55（说话态度：温和热情）", ctx)
+        self.assertIn("当前关系：亲密朋友", ctx)
+        self.assertIn("「亲密朋友」→「亲密无间」", ctx)
+        self.assertIn("不要重复发起关系提议", ctx)
+
+    def test_dynamic_context_skips_relation_when_disabled(self):
+        ctx = PromptManager.build_dynamic_context(
+            favorability_enabled=True,
+            system_time_enabled=False,
+            user_info_enabled=False,
+            score=55,
+            eval_text="聊得来",
+            relation="亲密朋友",
+            relation_enabled=False,
+        )
+        self.assertNotIn("当前关系", ctx)
+
+    def test_relation_guideline_falls_back_for_unknown(self):
+        section = build_relation_guideline("不存在的档位")
+        self.assertIn("当前关系行为准则（普通关系）", section)
+        self.assertIn(RELATION_GUIDELINES["普通关系"], section)
+
+
 class ConfigSchemaTests(unittest.TestCase):
     def test_prompt_config_schema(self):
         schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
@@ -200,6 +314,7 @@ class ConfigSchemaTests(unittest.TestCase):
             "sticker_condition",
             "favorability_prompt_core",
             "favorability_prompt_behavior",
+            "favorability_prompt_relation",
             "favorability_prompt_mute",
             "favorability_prompt_security",
         ):
@@ -219,6 +334,7 @@ class ConfigSchemaTests(unittest.TestCase):
                 "favorability_enabled",
                 "sticker_enabled",
                 "mute_enabled",
+                "relation_enabled",
                 "interaction_hint_enabled",
             ],
             "prompt_settings": [
@@ -227,6 +343,7 @@ class ConfigSchemaTests(unittest.TestCase):
                 "sticker_condition",
                 "favorability_prompt_core",
                 "favorability_prompt_behavior",
+                "favorability_prompt_relation",
                 "favorability_prompt_mute",
                 "favorability_prompt_security",
                 "interaction_hint_text",
@@ -243,6 +360,7 @@ class ConfigSchemaTests(unittest.TestCase):
             "sticker_condition",
             "favorability_prompt_core",
             "favorability_prompt_behavior",
+            "favorability_prompt_relation",
             "favorability_prompt_mute",
             "favorability_prompt_security",
         ):
@@ -273,10 +391,12 @@ class ConfigSchemaTests(unittest.TestCase):
             "sticker_enabled",
             "prompt_preset",
             "mute_enabled",
+            "relation_enabled",
             "mute_condition",
             "sticker_condition",
             "favorability_prompt_core",
             "favorability_prompt_behavior",
+            "favorability_prompt_relation",
             "favorability_prompt_mute",
             "favorability_prompt_security",
             "system_time_enabled",

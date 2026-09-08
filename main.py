@@ -1,8 +1,9 @@
 """
-astrbot_plugin_favorability — 好感度系统插件
+astrbot_plugin_favorability — 好感度 + 关系系统插件
 
-AI 根据对话内容自主更新用户好感度与评价，支持表情包回应与禁言处罚。
-基于 AstrBot 框架开发。
+好感度数值只影响 AI 说话的态度；关系档位独立存储，通过 [REL] 提议 +
+用户「确认关系」二次确认升降档，每次仅变动相邻一档。
+支持表情包回应、禁言处罚与 PIL 图片渲染。基于 AstrBot 框架开发。
 
 架构说明：
   main.py          — 插件入口，注册命令，组装子模块
@@ -39,19 +40,22 @@ from .commands.admin import AdminCommands
 @register(
     "astrbot_plugin_favorability",
     "Iris1598",
-    "好感度系统：AI根据对话内容自主更新用户好感度与评价，支持表情包回应、禁言处罚，PIL图片渲染",
-    "v2.6.0",
+    "好感度系统：好感度数值影响说话态度，关系档位独立管理（提议+确认升降档），"
+    "支持表情包回应、禁言处罚，PIL图片渲染",
+    "v3.0.0",
 )
 class FavorabilityPlugin(Star):
     _SETTING_GROUPS = {
         "favorability_enabled": "feature_settings",
         "sticker_enabled": "feature_settings",
         "mute_enabled": "feature_settings",
+        "relation_enabled": "feature_settings",
         "prompt_preset": "prompt_settings",
         "mute_condition": "prompt_settings",
         "sticker_condition": "prompt_settings",
         "favorability_prompt_core": "prompt_settings",
         "favorability_prompt_behavior": "prompt_settings",
+        "favorability_prompt_relation": "prompt_settings",
         "favorability_prompt_mute": "prompt_settings",
         "favorability_prompt_security": "prompt_settings",
         "interaction_hint_enabled": "feature_settings",
@@ -60,7 +64,7 @@ class FavorabilityPlugin(Star):
         "user_info_enabled": "context_settings",
         "render_theme": "render_settings",
     }
-    _CONFIG_LAYOUT_VERSION = 1
+    _CONFIG_LAYOUT_VERSION = 2
 
     """好感度系统主插件。"""
 
@@ -207,6 +211,14 @@ class FavorabilityPlugin(Star):
         return bool(self._get_setting("mute_enabled", True))
 
     @property
+    def relation_enabled(self) -> bool:
+        return bool(self._get_setting("relation_enabled", True))
+
+    @property
+    def favorability_prompt_relation(self) -> str:
+        return str(self._get_setting("favorability_prompt_relation", "") or "")
+
+    @property
     def mute_condition(self) -> str:
         return str(self._get_setting("mute_condition", "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）"))
 
@@ -318,6 +330,18 @@ class FavorabilityPlugin(Star):
             yield r
         event.stop_event()
 
+    @filter.command("确认关系")
+    async def cmd_confirm_relation(self, event: AstrMessageEvent):
+        async for r in self.user_cmds.cmd_confirm_relation(event):
+            yield r
+        event.stop_event()
+
+    @filter.command("取消关系")
+    async def cmd_cancel_relation(self, event: AstrMessageEvent):
+        async for r in self.user_cmds.cmd_cancel_relation(event):
+            yield r
+        event.stop_event()
+
     @filter.command("清理渲染缓存")
     async def cmd_clean_cache(self, event: AstrMessageEvent):
         """手动清理过期的渲染缓存。"""
@@ -349,6 +373,12 @@ class FavorabilityPlugin(Star):
     @filter.command("重置指定好感度")
     async def cmd_admin_reset(self, event: AstrMessageEvent):
         async for r in self.admin_cmds.cmd_admin_reset(event):
+            yield r
+        event.stop_event()
+
+    @filter.command("设置关系")
+    async def cmd_admin_set_relation(self, event: AstrMessageEvent):
+        async for r in self.admin_cmds.cmd_admin_set_relation(event):
             yield r
         event.stop_event()
 

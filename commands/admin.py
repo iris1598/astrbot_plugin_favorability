@@ -4,6 +4,7 @@
 提供面向管理员的指令：
   - /设置好感度 <@用户> <分数> — 强制设置指定用户好感度
   - /重置指定好感度 <@用户> — 重置指定用户好感度
+  - /设置关系 <@用户> <关系档位> — 直接指定用户关系档位（无需确认）
   - /禁言 <@用户> <秒数> — 禁言指定用户
   - /解除禁言 <@用户> — 解除用户禁言
 """
@@ -100,6 +101,54 @@ class AdminCommands:
         group_key, _ = self.plugin.keys(event)
         await self.plugin.db.reset_user(group_key, target_id)
         yield event.plain_result(f"✅ 用户 {target_id} 的好感度已重置。")
+
+    # ── 设置关系档位 ───────────────────────────────────────
+
+    async def cmd_admin_set_relation(self, event: AstrMessageEvent):
+        """(管理员) 直接设置指定用户的关系档位。
+
+        用法: /设置关系 <@用户> <档位名>
+        管理员操作直接生效，无需二次确认。
+        """
+        if event.role != "admin":
+            yield event.plain_result("❌ 此命令仅限管理员使用。")
+            return
+
+        levels = self.plugin.db.RELATION_LEVELS
+        target_id = self._extract_at_user(event)
+        parts = event.message_str.split()
+
+        if target_id:
+            if len(parts) < 2:
+                yield event.plain_result(
+                    "❌ 用法: /设置关系 <@用户> <档位>\n档位: " + " / ".join(levels)
+                )
+                return
+            relation_val = parts[-1]
+        else:
+            if len(parts) < 3:
+                yield event.plain_result(
+                    "❌ 用法: /设置关系 <@用户> <档位>\n档位: " + " / ".join(levels)
+                )
+                return
+            target_id = extract_user_id(parts[1])
+            relation_val = parts[2]
+
+        if not target_id or not target_id.isdigit():
+            yield event.plain_result("❌ 无法识别用户 ID。")
+            return
+
+        if relation_val not in levels:
+            yield event.plain_result(
+                f"❌ 无效档位「{relation_val}」，可选: " + " / ".join(levels)
+            )
+            return
+
+        group_key, _ = self.plugin.keys(event)
+        await self.plugin.db.set_relation(group_key, target_id, relation_val)
+        yield event.plain_result(
+            f"✅ 已将用户 {target_id} 的关系设为「{relation_val}」。"
+        )
 
     # ── 禁言用户 ───────────────────────────────────────────
 

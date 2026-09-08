@@ -2,11 +2,17 @@
 好感度数据管理模块 - FavorabilityManager
 
 管理好感度数据的增删改查、持久化、历史数据迁移。
+好感度数值（score）与关系（relation）完全解耦：
+  - score 只影响 LLM 说话的态度与语气，可随对话自动升降；
+  - relation 是独立的 7 档关系，只能通过 LLM 提议 + 用户确认变动，
+    且每次只能在相邻档位之间变动。
 数据结构：
 {
     "group_id_or_private": {
         "user_id": {
             "score": int,
+            "relation": str,              # 关系档位名（RELATION_LEVELS 之一）
+            "pending_rel": dict | None,   # 待确认的关系变动提议
             "eval": str,
             "name": str,
             "muted_until": float | None   # Unix 时间戳，None 表示未禁言
@@ -17,6 +23,8 @@
 
 import json
 import asyncio
+import os
+import tempfile
 import time
 import re
 from pathlib import Path
@@ -71,13 +79,74 @@ def group_storage_key(umo: str, sender_id: str) -> str:
 class FavorabilityManager:
     """好感度数据管理器，负责 CRUD 和持久化。"""
 
+    # 关系档位（从低到高，相邻一档）。与好感度数值解耦。
+    RELATION_LEVELS = (
+        "关系破裂",
+        "明显反感",
+        "心存芥蒂",
+        "普通关系",
+        "聊得来的熟人",
+        "亲密朋友",
+        "亲密无间",
+    )
+    DEFAULT_RELATION = "普通关系"
+    RELATION_PENDING_TTL = 600  # 关系变动提议的有效期（秒）
+    RELATION_COOLDOWN = 600  # 关系被取消/拒绝后的冷却时间（秒）
+
     DEFAULT_USER = {
         "score": 0,
+        "relation": DEFAULT_RELATION,
+        "pending_rel": None,
         "eval": "初次见面",
         "name": "",
         "muted_until": None,
+        "rel_cooldown_until": None,
     }
     MUTE_MAX_SECONDS = 300  # 最长禁言 5 分钟
+
+    @classmethod
+    def relation_for_score(cls, score: int) -> str:
+        """仅供旧数据迁移使用：按历史分数区间推导初始关系。"""
+        if score >= 70:
+            return "亲密无间"
+        if score >= 50:
+            return "亲密朋友"
+        if score >= 21:
+            return "聊得来的熟人"
+        if score >= -20:
+            return "普通关系"
+        if score >= -50:
+            return "心存芥蒂"
+        if score >= -70:
+            return "明显反感"
+        return "关系破裂"
+
+    @classmethod
+    def next_relation(cls, current: str, direction: str) -> Optional[str]:
+        """返回相邻一档的目标关系名；越界或档位名非法返回 None。"""
+        try:
+            index = cls.RELATION_LEVELS.index(current)
+        except ValueError:
+            index = cls.RELATION_LEVELS.index(cls.DEFAULT_RELATION)
+        if direction == "up":
+            target = index + 1
+        elif direction == "down":
+            target = index - 1
+        else:
+            return None
+        if 0 <= target < len(cls.RELATION_LEVELS):
+            return cls.RELATION_LEVELS[target]
+        return None
+
+    @staticmethod
+    def effective_pending(user_data: dict) -> Optional[dict]:
+        """返回未过期的待确认关系提议，已过期或没有返回 None。"""
+        pending = user_data.get("pending_rel")
+        if not isinstance(pending, dict):
+            return None
+        if time.time() > pending.get("expires_at", 0):
+            return None
+        return pending
 
     def __init__(self, data_path: Path):
         self.data_file = data_path / "favorability.json"
@@ -96,11 +165,24 @@ class FavorabilityManager:
             return {}
 
     def _write(self, data: dict):
+        tmp_path = None
         try:
-            with open(self.data_file, "w", encoding="utf-8") as f:
+            # 写入同目录下的临时文件，然后原子替换，防止意外关机/断电导致损坏
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=self.data_file.parent, prefix="fav_tmp_", suffix=".json"
+            )
+            with open(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.data_file)
         except Exception as e:
             logger.error(f"[favorability] 写入失败: {e}")
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 
     def _migrate_legacy_keys(self):
         """启动时迁移历史错误 key（如 @昵称(123456)）为纯数字 ID，并补充缺失的 name 字段。"""
@@ -122,6 +204,18 @@ class FavorabilityManager:
                 # 填充缺失的 muted_until 字段
                 if isinstance(val, dict) and "muted_until" not in val:
                     val["muted_until"] = None
+                    patched += 1
+                # 解耦升级：为旧数据补充 relation（按历史分数区间推导）与 pending_rel
+                if isinstance(val, dict) and not val.get("relation"):
+                    val["relation"] = self.relation_for_score(
+                        int(val.get("score", 0) or 0)
+                    )
+                    patched += 1
+                if isinstance(val, dict) and "pending_rel" not in val:
+                    val["pending_rel"] = None
+                    patched += 1
+                if isinstance(val, dict) and "rel_cooldown_until" not in val:
+                    val["rel_cooldown_until"] = None
                     patched += 1
                 # 如果同一 group 内新 key 已存在，保留 score 较大的
                 if new_key in new_users:
@@ -191,6 +285,129 @@ class FavorabilityManager:
                 data[group_key][user_id]["name"] = user_name
             self._write(data)
 
+    # ── 关系变动（提议 → 用户确认） ─────────────────────────
+
+    async def set_relation(
+        self,
+        group_key: str,
+        user_id: str,
+        relation: str,
+        user_name: Optional[str] = None,
+    ) -> bool:
+        """直接设置关系档位（管理员指令用）。档位名非法返回 False。"""
+        if relation not in self.RELATION_LEVELS:
+            return False
+        async with self.lock:
+            data = self._read()
+            if group_key not in data:
+                data[group_key] = {}
+            if user_id not in data[group_key]:
+                data[group_key][user_id] = self.DEFAULT_USER.copy()
+            data[group_key][user_id]["relation"] = relation
+            data[group_key][user_id]["pending_rel"] = None
+            if user_name:
+                data[group_key][user_id]["name"] = user_name
+            self._write(data)
+        return True
+
+    async def propose_relation(
+        self,
+        group_key: str,
+        user_id: str,
+        direction: str,
+        user_name: Optional[str] = None,
+    ) -> dict:
+        """记录一次相邻一档的关系变动提议，等待用户确认。
+
+        Returns:
+            {"status": "ok"|"already_pending"|"cooldown"|"low_score_rejected"|"boundary", "pending": ..., "current": ...}
+        """
+        async with self.lock:
+            data = self._read()
+            if group_key not in data:
+                data[group_key] = {}
+            if user_id not in data[group_key]:
+                data[group_key][user_id] = self.DEFAULT_USER.copy()
+            user = data[group_key][user_id]
+            current = user.get("relation") or self.DEFAULT_RELATION
+            pending = self.effective_pending(user)
+            if pending is not None:
+                return {"status": "already_pending", "pending": pending}
+
+            # 冷却检查：被取消或拒绝后在冷却期内不接受重复提议
+            cooldown_until = user.get("rel_cooldown_until")
+            if cooldown_until and time.time() < cooldown_until:
+                return {
+                    "status": "cooldown",
+                    "remaining": max(1, int(cooldown_until - time.time())),
+                    "current": current,
+                }
+
+            # 基础合理性防幻觉：好感度为负数时不允许发起升档提议
+            current_score = int(user.get("score", 0) or 0)
+            if direction == "up" and current_score < 0:
+                return {
+                    "status": "low_score_rejected",
+                    "current_score": current_score,
+                    "current": current,
+                }
+
+            target = self.next_relation(current, direction)
+            if target is None:
+                return {"status": "boundary", "current": current}
+            new_pending = {
+                "direction": direction,
+                "from": current,
+                "to": target,
+                "expires_at": time.time() + self.RELATION_PENDING_TTL,
+            }
+            user["pending_rel"] = new_pending
+            if user_name:
+                user["name"] = user_name
+            self._write(data)
+            return {"status": "ok", "pending": new_pending}
+
+    async def confirm_relation(self, group_key: str, user_id: str) -> dict:
+        """用户确认待生效的关系变动。
+
+        Returns:
+            {"status": "applied", "from": 旧档, "to": 新档} 或
+            {"status": "none"|"expired"|"stale"}
+        """
+        async with self.lock:
+            data = self._read()
+            user = data.get(group_key, {}).get(user_id)
+            if not isinstance(user, dict) or not user.get("pending_rel"):
+                return {"status": "none"}
+            pending = user["pending_rel"]
+            user["pending_rel"] = None
+            if time.time() > pending.get("expires_at", 0):
+                self._write(data)
+                return {"status": "expired"}
+            current = user.get("relation") or self.DEFAULT_RELATION
+            if pending.get("from") != current or pending.get("to") not in self.RELATION_LEVELS:
+                # 提议后关系被其他方式改动，本次提议作废
+                self._write(data)
+                return {"status": "stale"}
+            user["relation"] = pending["to"]
+            user["rel_cooldown_until"] = None
+            self._write(data)
+            return {"status": "applied", "from": current, "to": pending["to"]}
+
+    async def reject_relation(self, group_key: str, user_id: str) -> Optional[dict]:
+        """用户拒绝（取消）待确认的关系变动提议。返回被取消的提议或 None。"""
+        async with self.lock:
+            data = self._read()
+            user = data.get(group_key, {}).get(user_id)
+            if not isinstance(user, dict) or not user.get("pending_rel"):
+                return None
+            pending = user["pending_rel"]
+            user["pending_rel"] = None
+            # 拒绝后进入冷静期，避免连续被同方向提议骚扰
+            user["rel_cooldown_until"] = time.time() + self.RELATION_COOLDOWN
+            self._write(data)
+            return self.effective_pending({"pending_rel": pending})
+
     async def reset_user(
         self, group_key: str, user_id: str, user_name: Optional[str] = None
     ):
@@ -199,9 +416,12 @@ class FavorabilityManager:
             if group_key in data and user_id in data[group_key]:
                 data[group_key][user_id] = {
                     "score": 0,
+                    "relation": self.DEFAULT_RELATION,
+                    "pending_rel": None,
                     "eval": "记忆已被抹除",
                     "name": user_name or data[group_key][user_id].get("name", ""),
                     "muted_until": None,
+                    "rel_cooldown_until": None,
                 }
                 self._write(data)
 

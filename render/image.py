@@ -87,21 +87,44 @@ def _mix(a: tuple[int, int, int], b: tuple[int, int, int], ratio: float) -> tupl
     return tuple(round(a[i] + (b[i] - a[i]) * ratio) for i in range(3))
 
 
-def get_level_info(score: int) -> dict:
-    """根据分数返回好感度等级信息。"""
+_RELATION_INFO = {
+    "亲密无间": {"color": "#FF5C7A", "description": "重要的人 · 自然亲昵而热情"},
+    "亲密朋友": {"color": "#FF7A5C", "description": "亲密关系 · 主动关心与互动"},
+    "聊得来的熟人": {"color": "#36C98F", "description": "熟人关系 · 轻松而友好"},
+    "普通关系": {"color": "#8290A8", "description": "一般关系 · 礼貌而有分寸"},
+    "心存芥蒂": {"color": "#F2A93B", "description": "有所介意 · 谨慎并保持边界"},
+    "明显反感": {"color": "#F05B68", "description": "关系紧张 · 冷淡而坚定"},
+    "关系破裂": {"color": "#8B5CF6", "description": "接近冰点 · 减少互动并直接拒绝"},
+}
+
+
+def get_relation_info(relation: str | None) -> dict:
+    """根据关系档位返回徽章信息；未知档位回退为普通关系。"""
+    name = relation if relation in _RELATION_INFO else "普通关系"
+    info = _RELATION_INFO[name]
+    return {"title": name, "color": info["color"], "description": info["description"]}
+
+
+def relation_for_score(score: int) -> str:
+    """兼容旧数据：无关系字段时按历史分数区间推导。"""
     if score >= 70:
-        return {"title": "亲密无间", "color": "#FF5C7A", "description": "重要的人 · 自然亲昵而热情"}
+        return "亲密无间"
     if score >= 50:
-        return {"title": "亲密朋友", "color": "#FF7A5C", "description": "亲密关系 · 主动关心与互动"}
+        return "亲密朋友"
     if score >= 21:
-        return {"title": "聊得来", "color": "#36C98F", "description": "熟人关系 · 轻松而友好"}
+        return "聊得来的熟人"
     if score >= -20:
-        return {"title": "普通关系", "color": "#8290A8", "description": "一般关系 · 礼貌而有分寸"}
+        return "普通关系"
     if score >= -50:
-        return {"title": "心存芥蒂", "color": "#F2A93B", "description": "有所介意 · 谨慎并保持边界"}
+        return "心存芥蒂"
     if score >= -70:
-        return {"title": "明显反感", "color": "#F05B68", "description": "关系紧张 · 冷淡而坚定"}
-    return {"title": "关系破裂", "color": "#8B5CF6", "description": "接近冰点 · 减少互动并直接拒绝"}
+        return "明显反感"
+    return "关系破裂"
+
+
+def get_level_info(score: int) -> dict:
+    """（已弃用）按分数返回等级信息，仅供旧调用兼容。"""
+    return get_relation_info(relation_for_score(score))
 
 
 _THEMES = {
@@ -340,23 +363,30 @@ class FavorabilityRenderer:
         user_id: str,
         score: int,
         evaluation: str,
+        relation: str = "",
     ) -> str:
-        """渲染个人好感度档案卡。"""
+        """渲染个人好感度档案卡。徽章与配色由关系档位决定（与分数解耦）。"""
         width, height, margin = 720, 420, 24
-        level = get_level_info(score)
+        level = get_relation_info(relation) if relation else get_level_info(score)
         accent = _hex(level["color"])
         canvas = self._base_card(width, height, accent)
         draw = ImageDraw.Draw(canvas)
         theme = self.theme
         ox, oy = margin, margin
 
-        # 顶部品牌短横条与标签
+        # 顶部品牌短横条与标签（徽章宽度随关系名自适应）
         draw.rounded_rectangle((ox + 42, oy + 34, ox + 108, oy + 40), radius=3, fill=accent)
         badge_font = _load_font(18, True)
-        badge_box = (ox + 42, oy + 60, ox + 126, oy + 96)
+        badge_w = self._text_width(draw, level["title"], badge_font) + 28
+        badge_box = (ox + 42, oy + 60, ox + 42 + badge_w, oy + 96)
         self._surface(canvas, badge_box, radius=18, accent=accent)
         self._center_text(draw, badge_box, level["title"], badge_font, accent)
-        draw.text((ox + 140, oy + 67), "FAVORABILITY PROFILE", font=_load_font(15, True), fill=_hex(theme["tertiary"]))
+        draw.text(
+            (badge_box[2] + 14, oy + 67),
+            "FAVORABILITY PROFILE",
+            font=_load_font(15, True),
+            fill=_hex(theme["tertiary"]),
+        )
 
         # 用户信息
         name_font = _load_font(34, True)
@@ -424,7 +454,7 @@ class FavorabilityRenderer:
         self._surface(canvas, overview, radius=20, strong=True, accent=accent)
         draw.text((overview[0] + 20, overview[1] + 13), "当前榜首", font=_load_font(15, True), fill=_hex(theme["tertiary"]))
         score_label = f"{best_score:+d}" if best_score else "0"
-        level_title = get_level_info(best_score)["title"]
+        level_title = get_relation_info(rows[0][1].get("relation"))["title"]
         level_font = _load_font(15, True)
         level_w = self._text_width(draw, level_title, level_font)
         draw.text(
@@ -456,8 +486,8 @@ class FavorabilityRenderer:
         y = header_y + 54
         for index, (uid, data) in enumerate(rows):
             score = int(data.get("score", 0))
-            level = get_level_info(score)
-            level_color = _hex(level["color"])
+            relation = str(data.get("relation") or "") or relation_for_score(score)
+            level_color = _hex(get_relation_info(relation)["color"])
             row_box = (ox + 42, y, ox + width - 42, y + row_h - 8)
             if index < 3:
                 self._surface(canvas, row_box, radius=17, strong=True, accent=medal_colors[index])
