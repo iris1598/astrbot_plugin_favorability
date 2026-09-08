@@ -61,10 +61,10 @@ class RelationFlowTests(unittest.TestCase):
             await self.mgr.set_score("g", "alice", 999)
             info = self.mgr.get_user_info("g", "alice")
             self.assertEqual(info["score"], 999)
-            self.assertEqual(info["relation"], "普通关系")
+            self.assertEqual(info["relation"], "普通朋友")
             await self.mgr.set_score("g", "alice", -999)
             info = self.mgr.get_user_info("g", "alice")
-            self.assertEqual(info["relation"], "普通关系")
+            self.assertEqual(info["relation"], "普通朋友")
 
         asyncio.run(scenario())
 
@@ -72,8 +72,8 @@ class RelationFlowTests(unittest.TestCase):
         async def scenario():
             result = await self.mgr.propose_relation("g", "alice", "up")
             self.assertEqual(result["status"], "ok")
-            self.assertEqual(result["pending"]["from"], "普通关系")
-            self.assertEqual(result["pending"]["to"], "聊得来的熟人")
+            self.assertEqual(result["pending"]["from"], "普通朋友")
+            self.assertEqual(result["pending"]["to"], "熟络好友")
 
             # 重复提议 → already_pending
             again = await self.mgr.propose_relation("g", "alice", "up")
@@ -81,9 +81,9 @@ class RelationFlowTests(unittest.TestCase):
 
             applied = await self.mgr.confirm_relation("g", "alice")
             self.assertEqual(applied["status"], "applied")
-            self.assertEqual(applied["to"], "聊得来的熟人")
+            self.assertEqual(applied["to"], "熟络好友")
             info = self.mgr.get_user_info("g", "alice")
-            self.assertEqual(info["relation"], "聊得来的熟人")
+            self.assertEqual(info["relation"], "熟络好友")
             self.assertIsNone(info["pending_rel"])
 
             # 确认后没有待确认提议
@@ -94,7 +94,7 @@ class RelationFlowTests(unittest.TestCase):
 
     def test_propose_step_by_step_to_top(self):
         async def scenario():
-            for target in ("聊得来的熟人", "亲密朋友", "亲密无间"):
+            for target in ("熟络好友", "知心挚友", "挚爱恋人"):
                 await self.mgr.propose_relation("g", "alice", "up")
                 result = await self.mgr.confirm_relation("g", "alice")
                 self.assertEqual(result["status"], "applied")
@@ -103,7 +103,7 @@ class RelationFlowTests(unittest.TestCase):
             top = await self.mgr.propose_relation("g", "alice", "up")
             self.assertEqual(top["status"], "boundary")
             info = self.mgr.get_user_info("g", "alice")
-            self.assertEqual(info["relation"], "亲密无间")
+            self.assertEqual(info["relation"], "挚爱恋人")
 
         asyncio.run(scenario())
 
@@ -118,22 +118,22 @@ class RelationFlowTests(unittest.TestCase):
             self.assertEqual(expired["status"], "expired")
             info = self.mgr.get_user_info("g", "alice")
             self.assertIsNone(info["pending_rel"])
-            self.assertEqual(info["relation"], "普通关系")
+            self.assertEqual(info["relation"], "普通朋友")
             # 过期后可以重新提议
             ok = await self.mgr.propose_relation("g", "alice", "down")
             self.assertEqual(ok["status"], "ok")
-            self.assertEqual(ok["pending"]["to"], "心存芥蒂")
+            self.assertEqual(ok["pending"]["to"], "生疏之交")
 
         asyncio.run(scenario())
 
     def test_stale_proposal_after_admin_set(self):
         async def scenario():
             await self.mgr.propose_relation("g", "alice", "up")
-            await self.mgr.set_relation("g", "alice", "亲密朋友")
+            await self.mgr.set_relation("g", "alice", "知心挚友")
             stale = await self.mgr.confirm_relation("g", "alice")
             self.assertEqual(stale["status"], "none")  # set_relation 已清空提议
             info = self.mgr.get_user_info("g", "alice")
-            self.assertEqual(info["relation"], "亲密朋友")
+            self.assertEqual(info["relation"], "知心挚友")
 
         asyncio.run(scenario())
 
@@ -142,10 +142,10 @@ class RelationFlowTests(unittest.TestCase):
             await self.mgr.propose_relation("g", "alice", "up")
             pending = await self.mgr.reject_relation("g", "alice")
             self.assertIsNotNone(pending)
-            self.assertEqual(pending["to"], "聊得来的熟人")
+            self.assertEqual(pending["to"], "熟络好友")
             info = self.mgr.get_user_info("g", "alice")
             self.assertIsNone(info["pending_rel"])
-            self.assertEqual(info["relation"], "普通关系")
+            self.assertEqual(info["relation"], "普通朋友")
             # 再次取消 → None
             again = await self.mgr.reject_relation("g", "alice")
             self.assertIsNone(again)
@@ -154,11 +154,15 @@ class RelationFlowTests(unittest.TestCase):
 
     def test_admin_set_relation_validates_level(self):
         async def scenario():
-            ok = await self.mgr.set_relation("g", "alice", "明显反感")
+            ok = await self.mgr.set_relation("g", "alice", "不合对头")
             self.assertTrue(ok)
             info = self.mgr.get_user_info("g", "alice")
-            self.assertEqual(info["relation"], "明显反感")
+            self.assertEqual(info["relation"], "不合对头")
             self.assertEqual(info["score"], 0)  # 关系与数值互不影响
+            # 兼容旧名称设置
+            legacy_ok = await self.mgr.set_relation("g", "alice", "亲密朋友")
+            self.assertTrue(legacy_ok)
+            self.assertEqual(self.mgr.get_user_info("g", "alice")["relation"], "知心挚友")
             bad = await self.mgr.set_relation("g", "alice", "陌生人")
             self.assertFalse(bad)
 
@@ -166,11 +170,11 @@ class RelationFlowTests(unittest.TestCase):
 
     def test_reset_restores_default_relation(self):
         async def scenario():
-            await self.mgr.set_relation("g", "alice", "亲密无间")
+            await self.mgr.set_relation("g", "alice", "挚爱恋人")
             await self.mgr.propose_relation("g", "alice", "down")
             await self.mgr.reset_user("g", "alice")
             info = self.mgr.get_user_info("g", "alice")
-            self.assertEqual(info["relation"], "普通关系")
+            self.assertEqual(info["relation"], "普通朋友")
             self.assertIsNone(info["pending_rel"])
             self.assertEqual(info["score"], 0)
 
@@ -188,22 +192,22 @@ class RelationFlowTests(unittest.TestCase):
             json.dumps(data, ensure_ascii=False), encoding="utf-8"
         )
         mgr = FavorabilityManager(self.data_dir)
-        self.assertEqual(mgr.get_user_info("g", "bob")["relation"], "亲密无间")
-        self.assertEqual(mgr.get_user_info("g", "carol")["relation"], "明显反感")
-        # 已有 relation 的旧数据不被覆盖
-        self.assertEqual(mgr.get_user_info("g", "dave")["relation"], "亲密朋友")
+        self.assertEqual(mgr.get_user_info("g", "bob")["relation"], "挚爱恋人")
+        self.assertEqual(mgr.get_user_info("g", "carol")["relation"], "不合对头")
+        # 兼容旧 relation 的迁移升级
+        self.assertEqual(mgr.get_user_info("g", "dave")["relation"], "知心挚友")
 
     def test_next_relation_boundaries(self):
         self.assertIsNone(
-            FavorabilityManager.next_relation("亲密无间", "up")
+            FavorabilityManager.next_relation("挚爱恋人", "up")
         )
         self.assertIsNone(
-            FavorabilityManager.next_relation("关系破裂", "down")
+            FavorabilityManager.next_relation("决裂陌路", "down")
         )
         self.assertEqual(
-            FavorabilityManager.next_relation("普通关系", "down"), "心存芥蒂"
+            FavorabilityManager.next_relation("普通朋友", "down"), "生疏之交"
         )
-        self.assertIsNone(FavorabilityManager.next_relation("普通关系", "sideways"))
+        self.assertIsNone(FavorabilityManager.next_relation("普通朋友", "sideways"))
 
     def test_low_score_cannot_propose_up(self):
         async def scenario():

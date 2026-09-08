@@ -81,17 +81,28 @@ class FavorabilityManager:
 
     # 关系档位（从低到高，相邻一档）。与好感度数值解耦。
     RELATION_LEVELS = (
-        "关系破裂",
-        "明显反感",
-        "心存芥蒂",
-        "普通关系",
-        "聊得来的熟人",
-        "亲密朋友",
-        "亲密无间",
+        "决裂陌路",
+        "不合对头",
+        "生疏之交",
+        "普通朋友",
+        "熟络好友",
+        "知心挚友",
+        "挚爱恋人",
     )
-    DEFAULT_RELATION = "普通关系"
+    DEFAULT_RELATION = "普通朋友"
     RELATION_PENDING_TTL = 600  # 关系变动提议的有效期（秒）
     RELATION_COOLDOWN = 600  # 关系被取消/拒绝后的冷却时间（秒）
+
+    # 历史旧档位映射表（平滑迁移与兼容输入）
+    LEGACY_RELATION_MAP = {
+        "亲密无间": "挚爱恋人",
+        "亲密朋友": "知心挚友",
+        "聊得来的熟人": "熟络好友",
+        "普通关系": "普通朋友",
+        "心存芥蒂": "生疏之交",
+        "明显反感": "不合对头",
+        "关系破裂": "决裂陌路",
+    }
 
     DEFAULT_USER = {
         "score": 0,
@@ -108,22 +119,23 @@ class FavorabilityManager:
     def relation_for_score(cls, score: int) -> str:
         """仅供旧数据迁移使用：按历史分数区间推导初始关系。"""
         if score >= 70:
-            return "亲密无间"
+            return "挚爱恋人"
         if score >= 50:
-            return "亲密朋友"
+            return "知心挚友"
         if score >= 21:
-            return "聊得来的熟人"
+            return "熟络好友"
         if score >= -20:
-            return "普通关系"
+            return "普通朋友"
         if score >= -50:
-            return "心存芥蒂"
+            return "生疏之交"
         if score >= -70:
-            return "明显反感"
-        return "关系破裂"
+            return "不合对头"
+        return "决裂陌路"
 
     @classmethod
     def next_relation(cls, current: str, direction: str) -> Optional[str]:
         """返回相邻一档的目标关系名；越界或档位名非法返回 None。"""
+        current = cls.LEGACY_RELATION_MAP.get(current, current)
         try:
             index = cls.RELATION_LEVELS.index(current)
         except ValueError:
@@ -205,12 +217,17 @@ class FavorabilityManager:
                 if isinstance(val, dict) and "muted_until" not in val:
                     val["muted_until"] = None
                     patched += 1
-                # 解耦升级：为旧数据补充 relation（按历史分数区间推导）与 pending_rel
-                if isinstance(val, dict) and not val.get("relation"):
-                    val["relation"] = self.relation_for_score(
-                        int(val.get("score", 0) or 0)
-                    )
-                    patched += 1
+                # 解耦升级：为旧数据补充 relation（按历史分数区间推导）或平滑迁移旧档名
+                if isinstance(val, dict):
+                    rel = val.get("relation")
+                    if not rel:
+                        val["relation"] = self.relation_for_score(
+                            int(val.get("score", 0) or 0)
+                        )
+                        patched += 1
+                    elif rel in self.LEGACY_RELATION_MAP:
+                        val["relation"] = self.LEGACY_RELATION_MAP[rel]
+                        patched += 1
                 if isinstance(val, dict) and "pending_rel" not in val:
                     val["pending_rel"] = None
                     patched += 1
@@ -232,7 +249,7 @@ class FavorabilityManager:
             if migrated:
                 details.append(f"修正了 {migrated} 条历史错误 key")
             if patched:
-                details.append(f"补填了 {patched} 条缺失字段")
+                details.append(f"补填/升级了 {patched} 条缺失字段")
             logger.info(f"[favorability] 数据迁移完成：{'；'.join(details)}")
 
     # ── 业务方法 ────────────────────────────────────────────
@@ -247,6 +264,8 @@ class FavorabilityManager:
         # 确保所有字段存在（兼容旧数据）
         result = self.DEFAULT_USER.copy()
         result.update(raw)
+        if result.get("relation") in self.LEGACY_RELATION_MAP:
+            result["relation"] = self.LEGACY_RELATION_MAP[result["relation"]]
         return result
 
     async def update_user(
@@ -295,6 +314,7 @@ class FavorabilityManager:
         user_name: Optional[str] = None,
     ) -> bool:
         """直接设置关系档位（管理员指令用）。档位名非法返回 False。"""
+        relation = self.LEGACY_RELATION_MAP.get(relation, relation)
         if relation not in self.RELATION_LEVELS:
             return False
         async with self.lock:

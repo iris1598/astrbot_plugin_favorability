@@ -87,20 +87,31 @@ def _mix(a: tuple[int, int, int], b: tuple[int, int, int], ratio: float) -> tupl
     return tuple(round(a[i] + (b[i] - a[i]) * ratio) for i in range(3))
 
 
+_LEGACY_RELATION_MAP = {
+    "亲密无间": "挚爱恋人",
+    "亲密朋友": "知心挚友",
+    "聊得来的熟人": "熟络好友",
+    "普通关系": "普通朋友",
+    "心存芥蒂": "生疏之交",
+    "明显反感": "不合对头",
+    "关系破裂": "决裂陌路",
+}
+
 _RELATION_INFO = {
-    "亲密无间": {"color": "#FF5C7A", "description": "重要的人 · 自然亲昵而热情"},
-    "亲密朋友": {"color": "#FF7A5C", "description": "亲密关系 · 主动关心与互动"},
-    "聊得来的熟人": {"color": "#36C98F", "description": "熟人关系 · 轻松而友好"},
-    "普通关系": {"color": "#8290A8", "description": "一般关系 · 礼貌而有分寸"},
-    "心存芥蒂": {"color": "#F2A93B", "description": "有所介意 · 谨慎并保持边界"},
-    "明显反感": {"color": "#F05B68", "description": "关系紧张 · 冷淡而坚定"},
-    "关系破裂": {"color": "#8B5CF6", "description": "接近冰点 · 减少互动并直接拒绝"},
+    "挚爱恋人": {"color": "#FF5C7A", "description": "亲密伴侣 · 专属偏爱与深厚依恋"},
+    "知心挚友": {"color": "#FF7A5C", "description": "真挚密友 · 彼此托付与温暖支持"},
+    "熟络好友": {"color": "#36C98F", "description": "熟络好友 · 轻松融洽与愉快互动"},
+    "普通朋友": {"color": "#8290A8", "description": "普通朋友 · 客气得体与礼貌往来"},
+    "生疏之交": {"color": "#F2A93B", "description": "生疏之交 · 刻意保持距离与克制"},
+    "不合对头": {"color": "#F05B68", "description": "对立戒备 · 界限森严与严肃拒绝"},
+    "决裂陌路": {"color": "#8B5CF6", "description": "彻底决裂 · 互不往来与最低限度"},
 }
 
 
 def get_relation_info(relation: str | None) -> dict:
-    """根据关系档位返回徽章信息；未知档位回退为普通关系。"""
-    name = relation if relation in _RELATION_INFO else "普通关系"
+    """根据关系档位返回徽章信息；兼容旧档名，未知档位回退为普通朋友。"""
+    normalized = _LEGACY_RELATION_MAP.get(relation, relation)
+    name = normalized if normalized in _RELATION_INFO else "普通朋友"
     info = _RELATION_INFO[name]
     return {"title": name, "color": info["color"], "description": info["description"]}
 
@@ -108,18 +119,18 @@ def get_relation_info(relation: str | None) -> dict:
 def relation_for_score(score: int) -> str:
     """兼容旧数据：无关系字段时按历史分数区间推导。"""
     if score >= 70:
-        return "亲密无间"
+        return "挚爱恋人"
     if score >= 50:
-        return "亲密朋友"
+        return "知心挚友"
     if score >= 21:
-        return "聊得来的熟人"
+        return "熟络好友"
     if score >= -20:
-        return "普通关系"
+        return "普通朋友"
     if score >= -50:
-        return "心存芥蒂"
+        return "生疏之交"
     if score >= -70:
-        return "明显反感"
-    return "关系破裂"
+        return "不合对头"
+    return "决裂陌路"
 
 
 def get_level_info(score: int) -> dict:

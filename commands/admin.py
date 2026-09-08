@@ -138,6 +138,7 @@ class AdminCommands:
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
+        relation_val = self.plugin.db.LEGACY_RELATION_MAP.get(relation_val, relation_val)
         if relation_val not in levels:
             yield event.plain_result(
                 f"❌ 无效档位「{relation_val}」，可选: " + " / ".join(levels)

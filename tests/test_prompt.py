@@ -236,23 +236,23 @@ class RelationSystemTests(unittest.TestCase):
             favorability_enabled=True,
             sticker_enabled=False,
             prompt_preset="default",
-            relation="亲密朋友",
+            relation="知心挚友",
         )
-        self.assertIn("当前关系行为准则（亲密朋友）", prompt)
-        self.assertIn(RELATION_GUIDELINES["亲密朋友"], prompt)
+        self.assertIn("当前关系行为准则（知心挚友）", prompt)
+        self.assertIn(RELATION_GUIDELINES["知心挚友"], prompt)
         self.assertIn(FAV_RELATION_PROMPT, prompt)
         # 其他档位准则不应出现
         for name, text in RELATION_GUIDELINES.items():
-            if name != "亲密朋友":
+            if name != "知心挚友":
                 self.assertNotIn(text, prompt)
-        self.assertNotIn("当前关系行为准则（亲密无间）", prompt)
+        self.assertNotIn("当前关系行为准则（挚爱恋人）", prompt)
 
     def test_relation_section_respects_switch_and_preset(self):
         disabled = PromptManager.build_static_prompt(
             favorability_enabled=True,
             sticker_enabled=False,
             prompt_preset="default",
-            relation="亲密朋友",
+            relation="知心挚友",
             relation_enabled=False,
         )
         self.assertNotIn("当前关系行为准则（", disabled)
@@ -261,7 +261,7 @@ class RelationSystemTests(unittest.TestCase):
             favorability_enabled=True,
             sticker_enabled=False,
             prompt_preset="old",
-            relation="亲密朋友",
+            relation="知心挚友",
         )
         self.assertNotIn("当前关系行为准则（", old_preset)
         self.assertNotIn("[REL:up]", old_preset)
@@ -273,17 +273,17 @@ class RelationSystemTests(unittest.TestCase):
             user_info_enabled=False,
             score=55,
             eval_text="聊得来",
-            relation="亲密朋友",
+            relation="知心挚友",
             pending_rel={
                 "direction": "up",
-                "from": "亲密朋友",
-                "to": "亲密无间",
+                "from": "知心挚友",
+                "to": "挚爱恋人",
                 "expires_at": 0,
             },
         )
         self.assertIn("好感度：55（说话态度：温和热情）", ctx)
-        self.assertIn("当前关系：亲密朋友", ctx)
-        self.assertIn("「亲密朋友」→「亲密无间」", ctx)
+        self.assertIn("当前关系：知心挚友", ctx)
+        self.assertIn("「知心挚友」→「挚爱恋人」", ctx)
         self.assertIn("不要重复发起关系提议", ctx)
 
     def test_dynamic_context_skips_relation_when_disabled(self):
@@ -293,15 +293,15 @@ class RelationSystemTests(unittest.TestCase):
             user_info_enabled=False,
             score=55,
             eval_text="聊得来",
-            relation="亲密朋友",
+            relation="知心挚友",
             relation_enabled=False,
         )
         self.assertNotIn("当前关系", ctx)
 
     def test_relation_guideline_falls_back_for_unknown(self):
         section = build_relation_guideline("不存在的档位")
-        self.assertIn("当前关系行为准则（普通关系）", section)
-        self.assertIn(RELATION_GUIDELINES["普通关系"], section)
+        self.assertIn("当前关系行为准则（普通朋友）", section)
+        self.assertIn(RELATION_GUIDELINES["普通朋友"], section)
 
 
 class ConfigSchemaTests(unittest.TestCase):
