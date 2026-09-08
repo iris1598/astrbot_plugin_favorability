@@ -368,6 +368,7 @@ class ConfigSchemaTests(unittest.TestCase):
                 schema["prompt_settings"]["items"][key]["condition"],
                 {"prompt_preset": "custom"},
             )
+            self.assertTrue(schema["prompt_settings"]["items"][key]["default"])
 
         self.assertEqual(
             schema["feature_settings"]["items"]["interaction_hint_enabled"]["type"],
