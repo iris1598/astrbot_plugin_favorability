@@ -256,6 +256,8 @@ class RelationSystemTests(unittest.TestCase):
             relation_enabled=False,
         )
         self.assertNotIn("当前关系行为准则（", disabled)
+        self.assertNotIn("[REL:up]", disabled)
+        self.assertNotIn("6. 关系慎重", disabled)
 
         old_preset = PromptManager.build_static_prompt(
             favorability_enabled=True,
