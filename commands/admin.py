@@ -70,12 +70,29 @@ class AdminCommands:
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
+        persona_id = await self.plugin.resolve_persona_id(event)
+        pconf = self.plugin.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.favorability_enabled:
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"⚠️ {tag}好感度系统未启用。")
+            return
+
         group_key, _ = self.plugin.keys(event)
         sender_name = event.get_sender_name()
         await self.plugin.db.set_score(
-            group_key, target_id, score_val, user_name=sender_name
+            group_key,
+            target_id,
+            score_val,
+            user_name=sender_name,
+            persona_id=persona_id,
         )
-        yield event.plain_result(f"✅ 已将用户 {target_id} 的好感度设为 {score_val}。")
+        tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+        yield event.plain_result(
+            f"✅ {tag}已将用户 {target_id} 的好感度设为 {score_val}。"
+        )
 
     # ── 重置指定用户好感度 ─────────────────────────────────
 
@@ -98,9 +115,22 @@ class AdminCommands:
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
+        persona_id = await self.plugin.resolve_persona_id(event)
+        pconf = self.plugin.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.favorability_enabled:
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"⚠️ {tag}好感度系统未启用。")
+            return
+
         group_key, _ = self.plugin.keys(event)
-        await self.plugin.db.reset_user(group_key, target_id)
-        yield event.plain_result(f"✅ 用户 {target_id} 的好感度已重置。")
+        await self.plugin.db.reset_user(
+            group_key, target_id, persona_id=persona_id
+        )
+        tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+        yield event.plain_result(f"✅ {tag}用户 {target_id} 的好感度已重置。")
 
     # ── 设置关系档位 ───────────────────────────────────────
 
@@ -145,10 +175,22 @@ class AdminCommands:
             )
             return
 
+        persona_id = await self.plugin.resolve_persona_id(event)
+        pconf = self.plugin.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.relation_enabled or not pconf.favorability_enabled:
+            yield event.plain_result("❌ 关系系统未启用。")
+            return
+
         group_key, _ = self.plugin.keys(event)
-        await self.plugin.db.set_relation(group_key, target_id, relation_val)
+        await self.plugin.db.set_relation(
+            group_key, target_id, relation_val, persona_id=persona_id
+        )
+        tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
         yield event.plain_result(
-            f"✅ 已将用户 {target_id} 的关系设为「{relation_val}」。"
+            f"✅ {tag}已将用户 {target_id} 的关系设为「{relation_val}」。"
         )
 
     # ── 禁言用户 ───────────────────────────────────────────
@@ -191,10 +233,23 @@ class AdminCommands:
             yield event.plain_result("❌ 禁言秒数必须在 1~300 之间。")
             return
 
+        persona_id = await self.plugin.resolve_persona_id(event)
+        pconf = self.plugin.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.mute_enabled:
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"⚠️ {tag}禁言系统未启用。")
+            return
+
         group_key, _ = self.plugin.keys(event)
-        await self.plugin.db.mute_user(group_key, target_id, seconds)
+        await self.plugin.db.mute_user(
+            group_key, target_id, seconds, persona_id=persona_id
+        )
+        tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
         yield event.plain_result(
-            f"🔇 用户 {target_id} 已被禁言 {seconds} 秒。"
+            f"🔇 {tag}用户 {target_id} 已被禁言 {seconds} 秒。"
         )
 
     # ── 解除禁言 ───────────────────────────────────────────
@@ -218,6 +273,19 @@ class AdminCommands:
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
+        persona_id = await self.plugin.resolve_persona_id(event)
+        pconf = self.plugin.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.mute_enabled:
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"⚠️ {tag}禁言系统未启用。")
+            return
+
         group_key, _ = self.plugin.keys(event)
-        await self.plugin.db.unmute_user(group_key, target_id)
-        yield event.plain_result(f"✅ 用户 {target_id} 的禁言已解除。")
+        await self.plugin.db.unmute_user(
+            group_key, target_id, persona_id=persona_id
+        )
+        tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+        yield event.plain_result(f"✅ {tag}用户 {target_id} 的禁言已解除。")

@@ -31,6 +31,15 @@ class UserCommands:
     async def cmd_query(self, event: AstrMessageEvent):
         """查询好感度。不带参数查自己，@他人查指定用户。"""
         plug = self.plugin
+        persona_id = await plug.resolve_persona_id(event)
+        pconf = plug.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.favorability_enabled:
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"⚠️ {tag}好感度系统未启用。")
+            return
         group_key, self_id = plug.keys(event)
 
         # 优先从消息链提取 @ 目标
@@ -52,7 +61,7 @@ class UserCommands:
                 target_id = self_id
                 label = "你"
 
-        info = plug.db.get_user_info(group_key, target_id)
+        info = plug.db.get_user_info(group_key, target_id, persona_id=persona_id)
         score = info["score"]
         evaluation = info["eval"]
         relation = info.get("relation") or plug.db.DEFAULT_RELATION
@@ -61,10 +70,13 @@ class UserCommands:
         # 尝试 PIL 图片渲染
         if plug.has_renderer:
             try:
+                display_name = (
+                    event.get_sender_name() if target_id == self_id else label
+                )
+                if persona_id and persona_id != "default":
+                    display_name = f"{display_name} · {persona_id}"
                 img_path = plug.renderer.render_favorability_card(
-                    user_name=event.get_sender_name()
-                    if target_id == self_id
-                    else label,
+                    user_name=display_name,
                     user_id=target_id,
                     score=score,
                     evaluation=evaluation,
@@ -75,8 +87,9 @@ class UserCommands:
             except Exception as e:
                 logger.error(f"[favorability] 查询图片渲染失败，回退文本: {e}")
 
+        prefix = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
         msg = (
-            f"📊 {label}的好感度档案\n"
+            f"📊 {prefix}{label}的好感度档案\n"
             f"分数：{score}\n"
             f"关系：{relation}\n"
             f"评价：{evaluation}"
@@ -93,8 +106,19 @@ class UserCommands:
     async def cmd_rank(self, event: AstrMessageEvent):
         """查询当前会话的好感度正序排行榜（高分在前，前10名）。"""
         plug = self.plugin
+        persona_id = await plug.resolve_persona_id(event)
+        pconf = plug.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.favorability_enabled:
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"⚠️ {tag}好感度系统未启用。")
+            return
         group_key, _ = plug.keys(event)
-        ranked = plug.db.get_ranked_users(group_key, top_n=10, ascending=False)
+        ranked = plug.db.get_ranked_users(
+            group_key, top_n=10, ascending=False, persona_id=persona_id
+        )
 
         if not ranked:
             if plug.has_renderer:
@@ -104,7 +128,8 @@ class UserCommands:
                     return
                 except Exception:
                     pass
-            yield event.plain_result("🌸 还没有好感度记录哦~")
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"🌸 {tag}还没有好感度记录哦~")
             return
 
         if plug.has_renderer:
@@ -116,7 +141,12 @@ class UserCommands:
                 logger.error(f"[favorability] 排行图片渲染失败，回退文本: {e}")
 
         medals = ["🥇", "🥈", "🥉"] + ["👤"] * 7
-        msg = "🏆 【好感度荣誉榜】 🏆\n————————————————"
+        title = (
+            f"🏆 【{persona_id} · 好感度荣誉榜】 🏆"
+            if persona_id and persona_id != "default"
+            else "🏆 【好感度荣誉榜】 🏆"
+        )
+        msg = f"{title}\n————————————————"
         for i, (uid, udata) in enumerate(ranked):
             display_eval = (
                 (udata["eval"][:12] + "..")
@@ -132,8 +162,19 @@ class UserCommands:
     async def cmd_rank_desc(self, event: AstrMessageEvent):
         """查询当前会话的好感度倒序排行榜（低分在前，前10名）。"""
         plug = self.plugin
+        persona_id = await plug.resolve_persona_id(event)
+        pconf = plug.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.favorability_enabled:
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"⚠️ {tag}好感度系统未启用。")
+            return
         group_key, _ = plug.keys(event)
-        ranked = plug.db.get_ranked_users(group_key, top_n=10, ascending=True)
+        ranked = plug.db.get_ranked_users(
+            group_key, top_n=10, ascending=True, persona_id=persona_id
+        )
 
         if not ranked:
             if plug.has_renderer:
@@ -143,7 +184,8 @@ class UserCommands:
                     return
                 except Exception:
                     pass
-            yield event.plain_result("🌸 还没有好感度记录哦~")
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"🌸 {tag}还没有好感度记录哦~")
             return
 
         if plug.has_renderer:
@@ -154,8 +196,12 @@ class UserCommands:
             except Exception as e:
                 logger.error(f"[favorability] 倒序排行图片渲染失败，回退文本: {e}")
 
-        medals = ["👤"] * 10
-        msg = "📉 【好感度倒序榜】 📉\n————————————————"
+        title = (
+            f"📉 【{persona_id} · 好感度倒序榜】 📉"
+            if persona_id and persona_id != "default"
+            else "📉 【好感度倒序榜】 📉"
+        )
+        msg = f"{title}\n————————————————"
         for i, (uid, udata) in enumerate(ranked):
             display_eval = (
                 (udata["eval"][:12] + "..")
@@ -171,20 +217,37 @@ class UserCommands:
     async def cmd_reset_self(self, event: AstrMessageEvent):
         """重置自己的好感度记录。"""
         plug = self.plugin
+        persona_id = await plug.resolve_persona_id(event)
+        pconf = plug.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.favorability_enabled:
+            tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+            yield event.plain_result(f"⚠️ {tag}好感度系统未启用。")
+            return
         group_key, user_id = plug.keys(event)
-        await plug.db.reset_user(group_key, user_id)
-        yield event.plain_result("✨ 记忆已重置，现在的你对我来说就像一张白纸。")
+        await plug.db.reset_user(group_key, user_id, persona_id=persona_id)
+        tag = f"【{persona_id}】" if persona_id and persona_id != "default" else ""
+        yield event.plain_result(f"✨ {tag}记忆已重置，现在的你对我来说就像一张白纸。")
 
     # ── 确认/取消关系变动 ──────────────────────────────────
 
     async def cmd_confirm_relation(self, event: AstrMessageEvent):
         """确认待生效的关系变动提议。"""
         plug = self.plugin
-        if not plug.relation_enabled or not plug.favorability_enabled:
+        persona_id = await plug.resolve_persona_id(event)
+        pconf = plug.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.relation_enabled or not pconf.favorability_enabled:
             yield event.plain_result("❌ 关系系统未启用。")
             return
         group_key, user_id = plug.keys(event)
-        result = await plug.db.confirm_relation(group_key, user_id)
+        result = await plug.db.confirm_relation(
+            group_key, user_id, persona_id=persona_id
+        )
         status = result.get("status")
         if status == "applied":
             up = plug.db.RELATION_LEVELS.index(result["to"]) > plug.db.RELATION_LEVELS.index(
@@ -204,11 +267,18 @@ class UserCommands:
     async def cmd_cancel_relation(self, event: AstrMessageEvent):
         """拒绝待生效的关系变动提议。"""
         plug = self.plugin
-        if not plug.relation_enabled or not plug.favorability_enabled:
+        persona_id = await plug.resolve_persona_id(event)
+        pconf = plug.get_persona_config(persona_id)
+        if not pconf.plugin_enabled:
+            yield event.plain_result("❌ 插件当前已停用。")
+            return
+        if not pconf.relation_enabled or not pconf.favorability_enabled:
             yield event.plain_result("❌ 关系系统未启用。")
             return
         group_key, user_id = plug.keys(event)
-        pending = await plug.db.reject_relation(group_key, user_id)
+        pending = await plug.db.reject_relation(
+            group_key, user_id, persona_id=persona_id
+        )
         if pending:
             yield event.plain_result(
                 f"🙅 已拒绝对方的关系提议：「{pending['from']}」→「{pending['to']}」，"

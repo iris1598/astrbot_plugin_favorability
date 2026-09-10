@@ -79,10 +79,44 @@ class PromptManagerTests(unittest.TestCase):
             favorability_enabled=False,
             sticker_enabled=True,
             sticker_categories=["开心"],
+            mute_enabled=False,
         )
         self.assertNotIn("好感度数值规则", sticker_only)
         self.assertNotIn("[FAV:±N]", sticker_only)
         self.assertIn("[STK:分类名]", sticker_only)
+
+    def test_favorability_disabled_decoupled_from_mute_and_stickers(self):
+        """测试关闭好感度后，表情包与禁言仍然可以正常独立工作"""
+        prompt = PromptManager.build_static_prompt(
+            favorability_enabled=False,
+            sticker_enabled=True,
+            sticker_categories=["开心", "难过"],
+            mute_enabled=True,
+            mute_condition="辱骂测试",
+        )
+        # 验证好感度相关内容被剔除
+        self.assertNotIn("[FAV:±N]", prompt)
+        self.assertNotIn("[EVAL:简短印象]", prompt)
+        self.assertNotIn("[REL:up]", prompt)
+        self.assertNotIn("好感度数值态度规则", prompt)
+
+        # 验证禁言与表情包正常注入
+        self.assertIn("禁言规则", prompt)
+        self.assertIn("辱骂测试", prompt)
+        self.assertIn("[MUTE:N]", prompt)
+        self.assertIn("[STK:分类名]", prompt)
+        self.assertIn("可用分类：开心, 难过", prompt)
+        self.assertIn("保密与安全", prompt)
+
+    def test_plugin_disabled_returns_empty(self):
+        """测试插件总开关关闭时直接返回空文本"""
+        prompt = PromptManager.build_static_prompt(
+            favorability_enabled=True,
+            sticker_enabled=True,
+            mute_enabled=True,
+            plugin_enabled=False,
+        )
+        self.assertEqual(prompt, "")
 
     def test_sticker_condition_is_injected(self):
         prompt = PromptManager.build_static_prompt(
@@ -319,6 +353,13 @@ class ConfigSchemaTests(unittest.TestCase):
             "favorability_prompt_relation",
             "favorability_prompt_mute",
             "favorability_prompt_security",
+            "relation_guideline_lover",
+            "relation_guideline_confidant",
+            "relation_guideline_friend",
+            "relation_guideline_acquaintance",
+            "relation_guideline_estranged",
+            "relation_guideline_rival",
+            "relation_guideline_severed",
         ):
             self.assertEqual(schema[key]["type"], "text")
             self.assertTrue(schema[key]["default"])
@@ -333,6 +374,7 @@ class ConfigSchemaTests(unittest.TestCase):
 
         expected_groups = {
             "feature_settings": [
+                "plugin_enabled",
                 "favorability_enabled",
                 "sticker_enabled",
                 "mute_enabled",
@@ -348,8 +390,16 @@ class ConfigSchemaTests(unittest.TestCase):
                 "favorability_prompt_relation",
                 "favorability_prompt_mute",
                 "favorability_prompt_security",
+                "relation_guideline_lover",
+                "relation_guideline_confidant",
+                "relation_guideline_friend",
+                "relation_guideline_acquaintance",
+                "relation_guideline_estranged",
+                "relation_guideline_rival",
+                "relation_guideline_severed",
                 "interaction_hint_text",
             ],
+            "persona_settings": ["persona_overrides"],
             "context_settings": ["system_time_enabled", "user_info_enabled"],
             "render_settings": ["render_theme"],
         }
@@ -365,6 +415,13 @@ class ConfigSchemaTests(unittest.TestCase):
             "favorability_prompt_relation",
             "favorability_prompt_mute",
             "favorability_prompt_security",
+            "relation_guideline_lover",
+            "relation_guideline_confidant",
+            "relation_guideline_friend",
+            "relation_guideline_acquaintance",
+            "relation_guideline_estranged",
+            "relation_guideline_rival",
+            "relation_guideline_severed",
         ):
             self.assertEqual(
                 schema["prompt_settings"]["items"][key]["condition"],
@@ -390,6 +447,7 @@ class ConfigSchemaTests(unittest.TestCase):
 
         self.assertTrue(schema["_config_layout_version"]["invisible"])
         for key in (
+            "plugin_enabled",
             "favorability_enabled",
             "sticker_enabled",
             "prompt_preset",
@@ -402,6 +460,13 @@ class ConfigSchemaTests(unittest.TestCase):
             "favorability_prompt_relation",
             "favorability_prompt_mute",
             "favorability_prompt_security",
+            "relation_guideline_lover",
+            "relation_guideline_confidant",
+            "relation_guideline_friend",
+            "relation_guideline_acquaintance",
+            "relation_guideline_estranged",
+            "relation_guideline_rival",
+            "relation_guideline_severed",
             "system_time_enabled",
             "user_info_enabled",
             "render_theme",

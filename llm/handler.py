@@ -64,16 +64,22 @@ class LLMHandler:
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         """向 LLM 注入好感度系统规则与动态状态；若用户被禁言则阻断请求。"""
         plug = self.plugin
+        persona_id = await plug.resolve_persona_id(event, req)
+        pconf = plug.get_persona_config(persona_id)
 
-        # ── 禁言检查（优先级最高） ─────────────────────────
+        # ── 插件总开关 ──
+        if not pconf.plugin_enabled:
+            return
+
+        # ── 禁言检查（优先级最高，按人格隔离） ─────────────────
         group_key, user_id = plug.keys(event)
         is_muted = (
-            plug.db.is_muted(group_key, user_id)
-            if plug.mute_enabled
+            plug.db.is_muted(group_key, user_id, persona_id=persona_id)
+            if pconf.mute_enabled
             else False
         )
         mute_remaining = (
-            plug.db.get_mute_remaining(group_key, user_id)
+            plug.db.get_mute_remaining(group_key, user_id, persona_id=persona_id)
             if is_muted
             else 0
         )
@@ -81,7 +87,7 @@ class LLMHandler:
         if is_muted and mute_remaining > 0:
             # 阻断 LLM 请求，发送"不理你"回复
             logger.info(
-                f"[favorability] 用户 {user_id} 处于禁言状态（剩余 {int(mute_remaining)}s），阻断 LLM 请求"
+                f"[favorability][{persona_id}] 用户 {user_id} 处于禁言状态（剩余 {int(mute_remaining)}s），阻断 LLM 请求"
             )
             event.stop_event()
             # 随机选择一条禁言回复
@@ -92,46 +98,61 @@ class LLMHandler:
                 logger.error(f"[favorability] 禁言回复发送失败: {e}")
             return
 
-        if not plug.favorability_enabled and not plug.sticker_enabled:
+        has_any_feature = (
+            pconf.favorability_enabled
+            or pconf.sticker_enabled
+            or pconf.mute_enabled
+            or plug.system_time_enabled
+            or plug.user_info_enabled
+        )
+        if not has_any_feature:
             return
 
-        # 先读取用户状态（关系档位与待确认提议需要按用户注入）
+        # 先读取用户在该人格下的状态（关系档位与待确认提议需要按用户注入）
         user_info = None
-        if plug.favorability_enabled:
-            user_info = plug.db.get_user_info(group_key, user_id)
+        if pconf.favorability_enabled:
+            user_info = plug.db.get_user_info(
+                group_key, user_id, persona_id=persona_id
+            )
 
         # old 预设保持旧版“分数即关系”一体化规则，不启用关系系统
         relation_active = (
-            plug.favorability_enabled
-            and plug.relation_enabled
-            and plug.prompt_preset != "old"
+            pconf.favorability_enabled
+            and pconf.relation_enabled
+            and pconf.prompt_preset != "old"
         )
 
-        # 第一部分：静态规则 → system_prompt（只注入当前关系档位的准则）
+        # 第一部分：静态规则 → system_prompt（只注入当前人格、当前关系档位的准则）
         static_prompt = PromptManager.build_static_prompt(
-            favorability_enabled=plug.favorability_enabled,
-            sticker_enabled=plug.sticker_enabled,
+            favorability_enabled=pconf.favorability_enabled,
+            sticker_enabled=pconf.sticker_enabled,
             sticker_categories=(
-                plug.stickers.get_categories() if plug.sticker_enabled else None
+                plug.stickers.get_categories(
+                    persona_id=persona_id, dir_name=pconf.sticker_dir_name
+                )
+                if pconf.sticker_enabled
+                else None
             ),
-            mute_condition=plug.mute_condition,
-            mute_enabled=plug.mute_enabled,
-            favorability_prompt_core=plug.favorability_prompt_core,
-            favorability_prompt_behavior=plug.favorability_prompt_behavior,
-            favorability_prompt_relation=plug.favorability_prompt_relation,
-            favorability_prompt_mute=plug.favorability_prompt_mute,
-            favorability_prompt_security=plug.favorability_prompt_security,
-            sticker_condition=plug.sticker_condition,
-            prompt_preset=plug.prompt_preset,
+            mute_condition=pconf.mute_condition,
+            mute_enabled=pconf.mute_enabled,
+            favorability_prompt_core=pconf.favorability_prompt_core,
+            favorability_prompt_behavior=pconf.favorability_prompt_behavior,
+            favorability_prompt_relation=pconf.favorability_prompt_relation,
+            favorability_prompt_mute=pconf.favorability_prompt_mute,
+            favorability_prompt_security=pconf.favorability_prompt_security,
+            sticker_condition=pconf.sticker_condition,
+            prompt_preset=pconf.prompt_preset,
             relation_enabled=relation_active,
             relation=(user_info or {}).get("relation", ""),
+            relation_guidelines=pconf.relation_guidelines,
+            plugin_enabled=pconf.plugin_enabled,
         )
         if static_prompt:
             req.system_prompt = (req.system_prompt or "") + static_prompt
 
         # 第二部分：动态状态 → extra_user_content_parts
         dynamic_text = PromptManager.build_dynamic_context(
-            favorability_enabled=plug.favorability_enabled,
+            favorability_enabled=pconf.favorability_enabled,
             system_time_enabled=plug.system_time_enabled,
             user_info_enabled=plug.user_info_enabled,
             score=user_info.get("score") if user_info else None,
@@ -186,15 +207,20 @@ class LLMHandler:
             return
 
         plug = self.plugin
+        persona_id = await plug.resolve_persona_id(event)
+        pconf = plug.get_persona_config(persona_id)
         group_key, user_id = plug.keys(event)
 
-        handle_favor = plug.favorability_enabled and (fav_match or eval_match)
-        handle_sticker = plug.sticker_enabled and bool(stk_matches)
-        handle_mute = plug.mute_enabled and bool(mute_match)
+        if not pconf.plugin_enabled:
+            return
+
+        handle_favor = pconf.favorability_enabled and (fav_match or eval_match)
+        handle_sticker = pconf.sticker_enabled and bool(stk_matches)
+        handle_mute = pconf.mute_enabled and bool(mute_match)
         handle_rel = (
-            plug.favorability_enabled
-            and plug.relation_enabled
-            and plug.prompt_preset != "old"
+            pconf.favorability_enabled
+            and pconf.relation_enabled
+            and pconf.prompt_preset != "old"
             and bool(rel_match)
         )
 
@@ -211,24 +237,25 @@ class LLMHandler:
                     user_id,
                     direction,
                     user_name=event.get_sender_name(),
+                    persona_id=persona_id,
                 )
                 if rel_result.get("status") == "ok":
                     p = rel_result["pending"]
                     logger.info(
-                        f"[favorability] 用户 {user_id} 关系提议待确认: "
+                        f"[favorability][{persona_id}] 用户 {user_id} 关系提议待确认: "
                         f"{p['from']} -> {p['to']} ({direction})"
                     )
                 elif rel_result.get("status") == "low_score_rejected":
                     logger.info(
-                        f"[favorability] 用户 {user_id} 好感度为负({rel_result.get('current_score')})，拦截异常升级提议"
+                        f"[favorability][{persona_id}] 用户 {user_id} 好感度为负({rel_result.get('current_score')})，拦截异常升级提议"
                     )
                 elif rel_result.get("status") == "cooldown":
                     logger.debug(
-                        f"[favorability] 用户 {user_id} 关系提议处于冷却中(剩余 {rel_result.get('remaining')}s)"
+                        f"[favorability][{persona_id}] 用户 {user_id} 关系提议处于冷却中(剩余 {rel_result.get('remaining')}s)"
                     )
             else:
                 logger.warning(
-                    f"[favorability] 无法识别的 REL 方向: {rel_match.group(1)}"
+                    f"[favorability][{persona_id}] 无法识别的 REL 方向: {rel_match.group(1)}"
                 )
 
         # 3. 处理禁言
@@ -236,10 +263,10 @@ class LLMHandler:
             raw_seconds = int(mute_match.group(1))
             if validate_mute_seconds(raw_seconds):
                 muted_until = await plug.db.mute_user(
-                    group_key, user_id, raw_seconds
+                    group_key, user_id, raw_seconds, persona_id=persona_id
                 )
                 logger.info(
-                    f"[favorability] 用户 {user_id} 被禁言 {raw_seconds}s "
+                    f"[favorability][{persona_id}] 用户 {user_id} 被禁言 {raw_seconds}s "
                     f"(直到 {muted_until})"
                 )
                 # 异步发送禁言通知
@@ -248,7 +275,7 @@ class LLMHandler:
                 )
             else:
                 logger.warning(
-                    f"[favorability] 过滤非法 MUTE 值: {raw_seconds}s"
+                    f"[favorability][{persona_id}] 过滤非法 MUTE 值: {raw_seconds}s"
                 )
 
         # 4. 解析并验证 FAV 值。兼容并清理模型误输出的“±0”，但不执行更新。
@@ -257,7 +284,7 @@ class LLMHandler:
         if raw_fav and (raw_fav.startswith("±") or not validate_fav_value(raw_change)):
             # 超出范围则忽略 FAV 标记，仅保留 EVAL
             raw_change = 0
-            logger.warning(f"[favorability] 过滤非法 FAV 值: {raw_fav}，仅处理 EVAL")
+            logger.warning(f"[favorability][{persona_id}] 过滤非法 FAV 值: {raw_fav}，仅处理 EVAL")
         change = max(-5, min(5, raw_change))
 
         # 5. 解析并验证 EVAL
@@ -267,7 +294,7 @@ class LLMHandler:
             if validate_eval_text(raw_eval):
                 new_eval = raw_eval
             else:
-                logger.warning(f"[favorability] 过滤非法 EVAL 文本: {raw_eval[:30]}")
+                logger.warning(f"[favorability][{persona_id}] 过滤非法 EVAL 文本: {raw_eval[:30]}")
 
         # 6. 校验：如果 change == 0 且 new_eval 为 None，说明无有效操作
         if change == 0 and new_eval is None and not stk_matches and rel_result is None:
@@ -282,9 +309,12 @@ class LLMHandler:
                     change,
                     new_eval,
                     user_name=event.get_sender_name(),
+                    persona_id=persona_id,
                 )
             else:
-                user_data = plug.db.get_user_info(group_key, user_id)
+                user_data = plug.db.get_user_info(
+                    group_key, user_id, persona_id=persona_id
+                )
         else:
             user_data = None
 
@@ -300,6 +330,8 @@ class LLMHandler:
                 user_data,
                 stk_matches,
                 rel_result,
+                persona_id=persona_id,
+                sticker_dir_name=pconf.sticker_dir_name,
             )
         )
 
@@ -316,6 +348,8 @@ class LLMHandler:
         user_data: dict | None,
         stk_matches: list[str],
         rel_result: dict | None = None,
+        persona_id: str = "default",
+        sticker_dir_name: str | None = None,
     ):
         """延迟发送好感度变化提示、关系变动确认请求和表情包。"""
         await asyncio.sleep(0.5)
@@ -346,7 +380,9 @@ class LLMHandler:
 
         if handle_sticker:
             for cat in stk_matches:
-                img_path = plug.stickers.get_random_sticker(cat.strip())
+                img_path = plug.stickers.get_random_sticker(
+                    cat.strip(), persona_id=persona_id, dir_name=sticker_dir_name
+                )
                 if img_path:
                     try:
                         mc = MessageChain().file_image(str(img_path))

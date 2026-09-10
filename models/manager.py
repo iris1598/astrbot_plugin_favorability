@@ -161,44 +161,83 @@ class FavorabilityManager:
         return pending
 
     def __init__(self, data_path: Path):
-        self.data_file = data_path / "favorability.json"
-        self.lock = asyncio.Lock()
+        self.data_path = data_path
+        self.personas_dir = data_path / "personas"
+        self._locks: dict[str, asyncio.Lock] = {}
         data_path.mkdir(parents=True, exist_ok=True)
-        if not self.data_file.exists():
-            self._write({})
-        # 启动时自动迁移：修正历史错误格式的 user_id key
-        self._migrate_legacy_keys()
+        self.personas_dir.mkdir(parents=True, exist_ok=True)
+        default_file = self.get_data_file("default")
+        if not default_file.exists():
+            self._write({}, "default")
+        # 启动时自动迁移历史格式
+        self._migrate_legacy_keys("default")
+        # 如果已有其他人格目录，也顺带做键检查
+        if self.personas_dir.exists():
+            for p_dir in self.personas_dir.iterdir():
+                if p_dir.is_dir() and (p_dir / "favorability.json").exists():
+                    self._migrate_legacy_keys(p_dir.name)
 
-    def _read(self) -> dict:
+    @property
+    def data_file(self) -> Path:
+        """保持向后兼容：默认数据文件。"""
+        return self.get_data_file("default")
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        """保持向后兼容：默认异步锁。"""
+        return self.get_lock("default")
+
+    def get_data_file(self, persona_id: str = "default") -> Path:
+        """获取指定人格的数据文件路径。default 保留在根目录，其他人格独立文件夹存储。"""
+        pid = (persona_id or "").strip() or "default"
+        if pid == "default":
+            return self.data_path / "favorability.json"
+        p_dir = self.personas_dir / pid
+        p_dir.mkdir(parents=True, exist_ok=True)
+        return p_dir / "favorability.json"
+
+    def get_lock(self, persona_id: str = "default") -> asyncio.Lock:
+        """获取指定人格的异步操作互斥锁。"""
+        pid = (persona_id or "").strip() or "default"
+        if pid not in self._locks:
+            self._locks[pid] = asyncio.Lock()
+        return self._locks[pid]
+
+    def _read(self, persona_id: str = "default") -> dict:
+        target_file = self.get_data_file(persona_id)
+        if not target_file.exists():
+            return {}
         try:
-            with open(self.data_file, "r", encoding="utf-8") as f:
+            with open(target_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
 
-    def _write(self, data: dict):
+    def _write(self, data: dict, persona_id: str = "default"):
+        target_file = self.get_data_file(persona_id)
+        target_file.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = None
         try:
-            # 写入同目录下的临时文件，然后原子替换，防止意外关机/断电导致损坏
+            # 写入同目录下的临时文件，然后原子替换，防止意外损坏
             tmp_fd, tmp_path = tempfile.mkstemp(
-                dir=self.data_file.parent, prefix="fav_tmp_", suffix=".json"
+                dir=target_file.parent, prefix="fav_tmp_", suffix=".json"
             )
             with open(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_path, self.data_file)
+            os.replace(tmp_path, target_file)
         except Exception as e:
-            logger.error(f"[favorability] 写入失败: {e}")
+            logger.error(f"[favorability] 写入 {target_file} 失败: {e}")
             if tmp_path and os.path.exists(tmp_path):
                 try:
                     os.remove(tmp_path)
                 except OSError:
                     pass
 
-    def _migrate_legacy_keys(self):
-        """启动时迁移历史错误 key（如 @昵称(123456)）为纯数字 ID，并补充缺失的 name 字段。"""
-        data = self._read()
+    def _migrate_legacy_keys(self, persona_id: str = "default"):
+        """启动时迁移历史错误 key（如 @昵称(123456)）为纯数字 ID，并补充缺失字段。"""
+        data = self._read(persona_id)
         migrated = 0
         patched = 0
         new_data = {}
@@ -244,13 +283,13 @@ class FavorabilityManager:
                     migrated += 1
             new_data[group_key] = new_users
         if migrated > 0 or patched > 0:
-            self._write(new_data)
+            self._write(new_data, persona_id)
             details = []
             if migrated:
                 details.append(f"修正了 {migrated} 条历史错误 key")
             if patched:
                 details.append(f"补填/升级了 {patched} 条缺失字段")
-            logger.info(f"[favorability] 数据迁移完成：{'；'.join(details)}")
+            logger.info(f"[favorability][{persona_id}] 数据迁移完成：{'；'.join(details)}")
 
     # ── 业务方法 ────────────────────────────────────────────
 
@@ -258,8 +297,10 @@ class FavorabilityManager:
         """返回 (group_key, user_id) — 保留以供外部构造使用。"""
         return group_key, user_id
 
-    def get_user_info(self, group_key: str, user_id: str) -> dict:
-        data = self._read()
+    def get_user_info(
+        self, group_key: str, user_id: str, persona_id: str = "default"
+    ) -> dict:
+        data = self._read(persona_id)
         raw = data.get(group_key, {}).get(user_id, self.DEFAULT_USER.copy())
         # 确保所有字段存在（兼容旧数据）
         result = self.DEFAULT_USER.copy()
@@ -275,9 +316,10 @@ class FavorabilityManager:
         change: int = 0,
         new_eval: Optional[str] = None,
         user_name: Optional[str] = None,
+        persona_id: str = "default",
     ) -> dict:
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
@@ -287,14 +329,19 @@ class FavorabilityManager:
                 data[group_key][user_id]["eval"] = new_eval.strip()
             if user_name:
                 data[group_key][user_id]["name"] = user_name
-            self._write(data)
+            self._write(data, persona_id)
             return data[group_key][user_id]
 
     async def set_score(
-        self, group_key: str, user_id: str, score: int, user_name: Optional[str] = None
+        self,
+        group_key: str,
+        user_id: str,
+        score: int,
+        user_name: Optional[str] = None,
+        persona_id: str = "default",
     ):
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
@@ -302,7 +349,7 @@ class FavorabilityManager:
             data[group_key][user_id]["score"] = score
             if user_name:
                 data[group_key][user_id]["name"] = user_name
-            self._write(data)
+            self._write(data, persona_id)
 
     # ── 关系变动（提议 → 用户确认） ─────────────────────────
 
@@ -312,13 +359,14 @@ class FavorabilityManager:
         user_id: str,
         relation: str,
         user_name: Optional[str] = None,
+        persona_id: str = "default",
     ) -> bool:
         """直接设置关系档位（管理员指令用）。档位名非法返回 False。"""
         relation = self.LEGACY_RELATION_MAP.get(relation, relation)
         if relation not in self.RELATION_LEVELS:
             return False
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
@@ -327,7 +375,7 @@ class FavorabilityManager:
             data[group_key][user_id]["pending_rel"] = None
             if user_name:
                 data[group_key][user_id]["name"] = user_name
-            self._write(data)
+            self._write(data, persona_id)
         return True
 
     async def propose_relation(
@@ -336,14 +384,15 @@ class FavorabilityManager:
         user_id: str,
         direction: str,
         user_name: Optional[str] = None,
+        persona_id: str = "default",
     ) -> dict:
         """记录一次相邻一档的关系变动提议，等待用户确认。
 
         Returns:
             {"status": "ok"|"already_pending"|"cooldown"|"low_score_rejected"|"boundary", "pending": ..., "current": ...}
         """
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
@@ -384,40 +433,44 @@ class FavorabilityManager:
             user["pending_rel"] = new_pending
             if user_name:
                 user["name"] = user_name
-            self._write(data)
+            self._write(data, persona_id)
             return {"status": "ok", "pending": new_pending}
 
-    async def confirm_relation(self, group_key: str, user_id: str) -> dict:
+    async def confirm_relation(
+        self, group_key: str, user_id: str, persona_id: str = "default"
+    ) -> dict:
         """用户确认待生效的关系变动。
 
         Returns:
             {"status": "applied", "from": 旧档, "to": 新档} 或
             {"status": "none"|"expired"|"stale"}
         """
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             user = data.get(group_key, {}).get(user_id)
             if not isinstance(user, dict) or not user.get("pending_rel"):
                 return {"status": "none"}
             pending = user["pending_rel"]
             user["pending_rel"] = None
             if time.time() > pending.get("expires_at", 0):
-                self._write(data)
+                self._write(data, persona_id)
                 return {"status": "expired"}
             current = user.get("relation") or self.DEFAULT_RELATION
             if pending.get("from") != current or pending.get("to") not in self.RELATION_LEVELS:
                 # 提议后关系被其他方式改动，本次提议作废
-                self._write(data)
+                self._write(data, persona_id)
                 return {"status": "stale"}
             user["relation"] = pending["to"]
             user["rel_cooldown_until"] = None
-            self._write(data)
+            self._write(data, persona_id)
             return {"status": "applied", "from": current, "to": pending["to"]}
 
-    async def reject_relation(self, group_key: str, user_id: str) -> Optional[dict]:
+    async def reject_relation(
+        self, group_key: str, user_id: str, persona_id: str = "default"
+    ) -> Optional[dict]:
         """用户拒绝（取消）待确认的关系变动提议。返回被取消的提议或 None。"""
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             user = data.get(group_key, {}).get(user_id)
             if not isinstance(user, dict) or not user.get("pending_rel"):
                 return None
@@ -425,14 +478,18 @@ class FavorabilityManager:
             user["pending_rel"] = None
             # 拒绝后进入冷静期，避免连续被同方向提议骚扰
             user["rel_cooldown_until"] = time.time() + self.RELATION_COOLDOWN
-            self._write(data)
+            self._write(data, persona_id)
             return self.effective_pending({"pending_rel": pending})
 
     async def reset_user(
-        self, group_key: str, user_id: str, user_name: Optional[str] = None
+        self,
+        group_key: str,
+        user_id: str,
+        user_name: Optional[str] = None,
+        persona_id: str = "default",
     ):
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             if group_key in data and user_id in data[group_key]:
                 data[group_key][user_id] = {
                     "score": 0,
@@ -443,20 +500,24 @@ class FavorabilityManager:
                     "muted_until": None,
                     "rel_cooldown_until": None,
                 }
-                self._write(data)
+                self._write(data, persona_id)
 
-    def get_group_data(self, group_key: str) -> dict:
-        return self._read().get(group_key, {})
+    def get_group_data(self, group_key: str, persona_id: str = "default") -> dict:
+        return self._read(persona_id).get(group_key, {})
 
     def get_ranked_users(
-        self, group_key: str, top_n: int = 10, ascending: bool = False
+        self,
+        group_key: str,
+        top_n: int = 10,
+        ascending: bool = False,
+        persona_id: str = "default",
     ) -> list[tuple[str, dict]]:
         """获取当前群组好感度排行（前 top_n 名）。
 
         Args:
             ascending: False=倒序（高分在前）, True=正序（低分在前）
         """
-        group_data = self.get_group_data(group_key)
+        group_data = self.get_group_data(group_key, persona_id)
         safe = {}
         for uid, udata in group_data.items():
             entry = self.DEFAULT_USER.copy()
@@ -471,9 +532,11 @@ class FavorabilityManager:
 
     # ── 禁言相关方法 ────────────────────────────────────────
 
-    def is_muted(self, group_key: str, user_id: str) -> bool:
+    def is_muted(
+        self, group_key: str, user_id: str, persona_id: str = "default"
+    ) -> bool:
         """检查用户是否处于禁言状态（自动清除已过期）。"""
-        data = self._read()
+        data = self._read(persona_id)
         user_data = data.get(group_key, {}).get(user_id)
         if not user_data:
             return False
@@ -484,9 +547,11 @@ class FavorabilityManager:
             return False  # 已过期
         return True
 
-    def get_mute_remaining(self, group_key: str, user_id: str) -> float:
+    def get_mute_remaining(
+        self, group_key: str, user_id: str, persona_id: str = "default"
+    ) -> float:
         """获取剩余禁言秒数，未禁言返回 0。"""
-        data = self._read()
+        data = self._read(persona_id)
         user_data = data.get(group_key, {}).get(user_id)
         if not user_data:
             return 0
@@ -497,7 +562,11 @@ class FavorabilityManager:
         return max(0, remaining)
 
     async def mute_user(
-        self, group_key: str, user_id: str, seconds: int
+        self,
+        group_key: str,
+        user_id: str,
+        seconds: int,
+        persona_id: str = "default",
     ) -> float:
         """禁言用户指定秒数（最长 5 分钟）。
 
@@ -506,21 +575,23 @@ class FavorabilityManager:
         """
         seconds = min(max(1, seconds), self.MUTE_MAX_SECONDS)
         muted_until = time.time() + seconds
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
                 data[group_key][user_id] = self.DEFAULT_USER.copy()
             data[group_key][user_id]["muted_until"] = muted_until
-            self._write(data)
+            self._write(data, persona_id)
         return muted_until
 
-    async def unmute_user(self, group_key: str, user_id: str):
+    async def unmute_user(
+        self, group_key: str, user_id: str, persona_id: str = "default"
+    ):
         """解除用户禁言。"""
-        async with self.lock:
-            data = self._read()
+        async with self.get_lock(persona_id):
+            data = self._read(persona_id)
             if group_key in data and user_id in data[group_key]:
                 data[group_key][user_id]["muted_until"] = None
-                self._write(data)
+                self._write(data, persona_id)
 

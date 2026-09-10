@@ -30,6 +30,7 @@ from .services.prompt import (
     DEFAULT_STICKER_CONDITION,
     FAVORABILITY_PROMPT_DEFAULTS,
     PROMPT_PRESET_NAMES,
+    RELATION_KEY_MAP,
     PromptManager,
 )
 from .llm.handler import LLMHandler
@@ -46,6 +47,7 @@ from .commands.admin import AdminCommands
 )
 class FavorabilityPlugin(Star):
     _SETTING_GROUPS = {
+        "plugin_enabled": "feature_settings",
         "favorability_enabled": "feature_settings",
         "sticker_enabled": "feature_settings",
         "mute_enabled": "feature_settings",
@@ -58,13 +60,21 @@ class FavorabilityPlugin(Star):
         "favorability_prompt_relation": "prompt_settings",
         "favorability_prompt_mute": "prompt_settings",
         "favorability_prompt_security": "prompt_settings",
+        "relation_guideline_lover": "prompt_settings",
+        "relation_guideline_confidant": "prompt_settings",
+        "relation_guideline_friend": "prompt_settings",
+        "relation_guideline_acquaintance": "prompt_settings",
+        "relation_guideline_estranged": "prompt_settings",
+        "relation_guideline_rival": "prompt_settings",
+        "relation_guideline_severed": "prompt_settings",
+        "persona_overrides": "persona_settings",
         "interaction_hint_enabled": "feature_settings",
         "interaction_hint_text": "prompt_settings",
         "system_time_enabled": "context_settings",
         "user_info_enabled": "context_settings",
         "render_theme": "render_settings",
     }
-    _CONFIG_LAYOUT_VERSION = 2
+    _CONFIG_LAYOUT_VERSION = 4
 
     """好感度系统主插件。"""
 
@@ -190,6 +200,10 @@ class FavorabilityPlugin(Star):
         )
 
     @property
+    def plugin_enabled(self) -> bool:
+        return bool(self._get_setting("plugin_enabled", True))
+
+    @property
     def favorability_enabled(self) -> bool:
         return bool(self._get_setting("favorability_enabled", True))
 
@@ -256,6 +270,87 @@ class FavorabilityPlugin(Star):
             self._get_setting("interaction_hint_text", DEFAULT_INTERACTION_HINT)
             or DEFAULT_INTERACTION_HINT
         )
+
+    @property
+    def relation_guidelines(self) -> dict[str, str]:
+        """全局配置中自定义的七档关系行为准则字典。"""
+        guidelines = {}
+        for key, name in RELATION_KEY_MAP.items():
+            val = self._get_setting(key, "")
+            if val and str(val).strip():
+                guidelines[name] = str(val).strip()
+        return guidelines
+
+    def get_persona_config(self, persona_id: str) -> "PersonaConfig":
+        """获取指定人格的专属配置视图（未配置项自动回退全局默认配置）。"""
+        return PersonaConfig(self, persona_id)
+
+    async def resolve_persona_id(
+        self, event: AstrMessageEvent, req: ProviderRequest = None
+    ) -> str:
+        """多层级智能解析当前会话生效的人格 ID / 名称，未识别时回退为 'default'。"""
+        # 1. 优先尝试从 req.conversation 获取
+        if req is not None:
+            conv = getattr(req, "conversation", None)
+            if conv:
+                pid = getattr(conv, "persona_id", None)
+                if pid and str(pid).strip() and str(pid).strip() != "[%None]":
+                    return str(pid).strip()
+
+        # 2. 尝试通过 AstrBot context.persona_manager 解析
+        pm = getattr(self.context, "persona_manager", None)
+        if pm and hasattr(pm, "resolve_selected_persona"):
+            try:
+                conv_pid = None
+                if req is not None and getattr(req, "conversation", None):
+                    conv_pid = getattr(req.conversation, "persona_id", None)
+                elif hasattr(self.context, "conversation_manager"):
+                    curr_cid = await self.context.conversation_manager.get_curr_conversation_id(
+                        event.unified_msg_origin
+                    )
+                    if curr_cid:
+                        conv = await self.context.conversation_manager.get_conversation(
+                            event.unified_msg_origin, curr_cid
+                        )
+                        if conv:
+                            conv_pid = getattr(conv, "persona_id", None)
+
+                cfg = (
+                    getattr(self.context, "get_config", lambda umo=None: {})(
+                        umo=event.unified_msg_origin
+                    )
+                    or {}
+                )
+                res = await pm.resolve_selected_persona(
+                    umo=event.unified_msg_origin,
+                    conversation_persona_id=conv_pid,
+                    platform_name=event.get_platform_name()
+                    if hasattr(event, "get_platform_name")
+                    else "",
+                    provider_settings=cfg,
+                )
+                if res and res[0] and str(res[0]).strip() and str(res[0]).strip() != "[%None]":
+                    return str(res[0]).strip()
+            except Exception as e:
+                logger.debug(f"[favorability] 解析 persona 异常: {e}")
+
+        # 3. 尝试通过 conversation_manager 获取当前 conversation 的 persona_id
+        cm = getattr(self.context, "conversation_manager", None)
+        if cm and hasattr(cm, "get_curr_conversation_id"):
+            try:
+                curr_cid = await cm.get_curr_conversation_id(event.unified_msg_origin)
+                if curr_cid:
+                    conv = await cm.get_conversation(
+                        event.unified_msg_origin, curr_cid
+                    )
+                    if conv and getattr(conv, "persona_id", None):
+                        pid = str(conv.persona_id).strip()
+                        if pid and pid != "[%None]":
+                            return pid
+            except Exception as e:
+                logger.debug(f"[favorability] 从 conversation_manager 获取 persona 异常: {e}")
+
+        return "default"
 
     def keys(self, event: AstrMessageEvent) -> tuple[str, str]:
         """返回 (group_key, user_id)。
@@ -406,3 +501,108 @@ class FavorabilityPlugin(Star):
                 pass
             self._cache_cleanup_task = None
             logger.info("[favorability] 渲染缓存定时清理任务已取消")
+
+
+class PersonaConfig:
+    """针对特定人格的配置视图，支持独立覆盖与回退全局默认配置。"""
+
+    def __init__(self, plugin: FavorabilityPlugin, persona_id: str):
+        self.plugin = plugin
+        self.persona_id = (persona_id or "").strip() or "default"
+        self.override = self._find_override()
+
+    def _find_override(self) -> dict:
+        overrides = self.plugin._get_setting("persona_overrides", [])
+        if not isinstance(overrides, list):
+            return {}
+        for item in overrides:
+            if not isinstance(item, dict):
+                continue
+            pid = str(item.get("persona_id") or "").strip()
+            if pid and pid == self.persona_id:
+                return item
+        return {}
+
+    def get(self, key: str, default=None):
+        if self.override and key in self.override:
+            val = self.override[key]
+            if isinstance(val, str):
+                if val.strip():
+                    return val
+            elif val is not None:
+                return val
+        return self.plugin._get_setting(key, default)
+
+    @property
+    def plugin_enabled(self) -> bool:
+        return bool(self.get("plugin_enabled", True))
+
+    @property
+    def favorability_enabled(self) -> bool:
+        return bool(self.get("favorability_enabled", True))
+
+    @property
+    def sticker_enabled(self) -> bool:
+        return bool(self.get("sticker_enabled", True))
+
+    @property
+    def mute_enabled(self) -> bool:
+        return bool(self.get("mute_enabled", True))
+
+    @property
+    def relation_enabled(self) -> bool:
+        return bool(self.get("relation_enabled", True))
+
+    @property
+    def sticker_dir_name(self) -> str:
+        val = str(self.get("sticker_dir_name", "") or "").strip()
+        return val or self.persona_id
+
+    @property
+    def prompt_preset(self) -> str:
+        value = str(self.get("prompt_preset", "default") or "").strip().lower()
+        return value if value in PROMPT_PRESET_NAMES else "default"
+
+    @property
+    def sticker_condition(self) -> str:
+        return str(self.get("sticker_condition", "") or "")
+
+    @property
+    def mute_condition(self) -> str:
+        return str(
+            self.get(
+                "mute_condition", "持续恶劣行为（如辱骂、骚扰、刷屏、恶意挑衅）"
+            )
+            or ""
+        )
+
+    @property
+    def favorability_prompt_core(self) -> str:
+        return str(self.get("favorability_prompt_core", "") or "")
+
+    @property
+    def favorability_prompt_behavior(self) -> str:
+        return str(self.get("favorability_prompt_behavior", "") or "")
+
+    @property
+    def favorability_prompt_relation(self) -> str:
+        return str(self.get("favorability_prompt_relation", "") or "")
+
+    @property
+    def favorability_prompt_mute(self) -> str:
+        return str(self.get("favorability_prompt_mute", "") or "")
+
+    @property
+    def favorability_prompt_security(self) -> str:
+        return str(self.get("favorability_prompt_security", "") or "")
+
+    @property
+    def relation_guidelines(self) -> dict[str, str]:
+        """优先使用人格专属七档关系态度，未填写项回退全局设置。"""
+        guidelines = {}
+        for key, name in RELATION_KEY_MAP.items():
+            val = self.get(key, "")
+            if val and str(val).strip():
+                guidelines[name] = str(val).strip()
+        return guidelines
+
