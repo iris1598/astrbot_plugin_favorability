@@ -27,7 +27,7 @@ class AdminCommands:
         return self._plugin
 
     def _extract_at_user(self, event: AstrMessageEvent) -> str | None:
-        """从消息链中提取 @ 目标的纯数字 ID。"""
+        """从消息链中提取 @ 目标的用户 ID。"""
         for comp in event.message_obj.message:
             if isinstance(comp, Comp.At):
                 return str(comp.qq)
@@ -66,7 +66,7 @@ class AdminCommands:
                 yield event.plain_result("❌ 分数必须是整数。")
                 return
 
-        if not target_id or not target_id.isdigit():
+        if not target_id or not target_id.strip():
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
@@ -111,7 +111,7 @@ class AdminCommands:
                 return
             target_id = extract_user_id(parts[1])
 
-        if not target_id or not target_id.isdigit():
+        if not target_id or not target_id.strip():
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
@@ -164,7 +164,7 @@ class AdminCommands:
             target_id = extract_user_id(parts[1])
             relation_val = parts[2]
 
-        if not target_id or not target_id.isdigit():
+        if not target_id or not target_id.strip():
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
@@ -225,7 +225,7 @@ class AdminCommands:
                 yield event.plain_result("❌ 秒数必须是整数。")
                 return
 
-        if not target_id or not target_id.isdigit():
+        if not target_id or not target_id.strip():
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 
@@ -269,7 +269,7 @@ class AdminCommands:
                 return
             target_id = extract_user_id(parts[1])
 
-        if not target_id or not target_id.isdigit():
+        if not target_id or not target_id.strip():
             yield event.plain_result("❌ 无法识别用户 ID。")
             return
 

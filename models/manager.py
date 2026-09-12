@@ -34,25 +34,34 @@ from astrbot.api import logger
 
 
 def extract_user_id(raw: str) -> str:
-    """从 @ 提及文本中提取纯数字用户ID。
+    """从 @ 提及文本中提取用户 ID。
 
     支持格式：
-      - 纯数字：123456
-      - QQ 提及：@昵称(123456)
-      - 带 @ 前缀：@123456
-    返回提取后的纯数字 ID 字符串。
+      - 纯数字 ID：123456
+      - 纯 OpenID / 字母数字 ID：2EBE845D4DFFAB7CD67DAF9A92880A46
+      - QQ 提及：@昵称(123456) 或 @昵称(2EBE845D4DFFAB7CD67DAF9A92880A46)
+      - 带 @ 前缀：@123456 或 @2EBE845D4DFFAB7CD67DAF9A92880A46
+    返回提取后的用户 ID 字符串。
     """
     raw = raw.strip()
-    # 优先从括号中提取数字（QQ @ 提及格式）
-    m = re.search(r"\((\d+)\)", raw)
+    if not raw:
+        return raw
+
+    # 优先从括号中提取 ID（例如 QQ @ 提及格式：@昵称(123456) 或 @昵称(OPENID)）
+    m = re.search(r"\(([^()]+)\)$", raw)
+    if not m:
+        m = re.search(r"\(([^()]+)\)", raw)
     if m:
-        return m.group(1)
-    # 去掉前导 @ 后提取数字
-    cleaned = raw.lstrip("@")
-    m = re.search(r"(\d+)", cleaned)
-    if m:
-        return m.group(1)
-    return raw  # 无法提取时原样返回
+        val = m.group(1).strip()
+        if val:
+            return val
+
+    # 去掉前导 @（例如 @123456 或 @2EBE845D4DFFAB7CD67DAF9A92880A46）
+    cleaned = raw.lstrip("@").strip()
+    if cleaned:
+        return cleaned
+
+    return raw
 
 
 def group_storage_key(umo: str, sender_id: str) -> str:
@@ -235,56 +244,135 @@ class FavorabilityManager:
                 except OSError:
                     pass
 
+    def _find_legacy_short_key(
+        self, group_users: dict, full_id: str, user_name: Optional[str] = None
+    ) -> Optional[str]:
+        """检查是否存在被历史错误正则截断的孤立短数字 key。"""
+        if not full_id or full_id in group_users or not isinstance(group_users, dict):
+            return None
+        m = re.search(r"(\d+)", full_id)
+        if not m:
+            return None
+        candidate = m.group(1)
+        if candidate in group_users and candidate != full_id:
+            short_rec = group_users[candidate]
+            if isinstance(short_rec, dict):
+                short_name = short_rec.get("name")
+                if user_name and short_name and short_name == user_name:
+                    return candidate
+                if not short_name or not user_name:
+                    return candidate
+        return None
+
     def _migrate_legacy_keys(self, persona_id: str = "default"):
-        """启动时迁移历史错误 key（如 @昵称(123456)）为纯数字 ID，并补充缺失字段。"""
+        """启动时迁移历史错误 key（如 @昵称(123456)）、自愈截断的 OpenID，并补充缺失字段。"""
         data = self._read(persona_id)
         migrated = 0
         patched = 0
+        healed = 0
         new_data = {}
         for group_key, users in data.items():
             if not isinstance(users, dict):
                 new_data[group_key] = users
                 continue
-            new_users = {}
+
+            # 1. 修复私聊 FriendMessage 误截断 key
+            # group_key 格式形如: {persona}:FriendMessage:{friend_id}
+            parts = group_key.split(":")
+            if len(parts) >= 3 and parts[1] == "FriendMessage":
+                friend_id = parts[2]
+                if friend_id and friend_id not in users and len(users) == 1:
+                    only_k = next(iter(users))
+                    if only_k != friend_id:
+                        users = {friend_id: users[only_k]}
+                        healed += 1
+
+            # 2. 规范化 key（仅处理带括号或 @ 前缀的遗留格式）
+            norm_users = {}
             for old_key, val in users.items():
+                if not isinstance(val, dict):
+                    continue
                 new_key = extract_user_id(old_key)
-                # 填充缺失的 name 字段
-                if isinstance(val, dict) and "name" not in val:
-                    val["name"] = ""
-                    patched += 1
-                # 填充缺失的 muted_until 字段
-                if isinstance(val, dict) and "muted_until" not in val:
-                    val["muted_until"] = None
-                    patched += 1
-                # 解耦升级：为旧数据补充 relation（按历史分数区间推导）或平滑迁移旧档名
-                if isinstance(val, dict):
-                    rel = val.get("relation")
-                    if not rel:
-                        val["relation"] = self.relation_for_score(
-                            int(val.get("score", 0) or 0)
-                        )
-                        patched += 1
-                    elif rel in self.LEGACY_RELATION_MAP:
-                        val["relation"] = self.LEGACY_RELATION_MAP[rel]
-                        patched += 1
-                if isinstance(val, dict) and "pending_rel" not in val:
-                    val["pending_rel"] = None
-                    patched += 1
-                if isinstance(val, dict) and "rel_cooldown_until" not in val:
-                    val["rel_cooldown_until"] = None
-                    patched += 1
-                # 如果同一 group 内新 key 已存在，保留 score 较大的
-                if new_key in new_users:
-                    if val.get("score", 0) > new_users[new_key].get("score", 0):
-                        new_users[new_key] = val
-                else:
-                    new_users[new_key] = val
                 if new_key != old_key:
                     migrated += 1
-            new_data[group_key] = new_users
-        if migrated > 0 or patched > 0:
+                if new_key in norm_users:
+                    if val.get("score", 0) > norm_users[new_key].get("score", 0):
+                        norm_users[new_key] = val
+                else:
+                    norm_users[new_key] = val
+
+            # 3. 自愈群聊中被截断的纯数字 key（例如 "2"、"039" 与 "2EBE..."、"039A..."）
+            absorbed_short_keys = set()
+            full_keys = [k for k in norm_users if len(k) >= 16]
+            for full_k in full_keys:
+                full_val = norm_users[full_k]
+                m = re.search(r"(\d+)", full_k)
+                if not m:
+                    continue
+                prefix_digit = m.group(1)
+                if prefix_digit in norm_users and prefix_digit != full_k and prefix_digit not in absorbed_short_keys:
+                    short_val = norm_users[prefix_digit]
+                    same_name = (
+                        short_val.get("name")
+                        and full_val.get("name")
+                        and short_val.get("name") == full_val.get("name")
+                    )
+                    one_name_empty = not short_val.get("name") or not full_val.get("name")
+                    matching_full_keys = [
+                        fk for fk in full_keys
+                        if (re.search(r"(\d+)", fk) and re.search(r"(\d+)", fk).group(1) == prefix_digit)
+                    ]
+                    is_unique_candidate = len(matching_full_keys) == 1
+
+                    if same_name or (one_name_empty and is_unique_candidate):
+                        merged = full_val.copy()
+                        merged["score"] = full_val.get("score", 0) + short_val.get("score", 0)
+                        if not merged.get("name") and short_val.get("name"):
+                            merged["name"] = short_val["name"]
+                        if (not merged.get("eval") or merged.get("eval") == "初次见面") and short_val.get("eval"):
+                            merged["eval"] = short_val["eval"]
+                        if (
+                            merged.get("relation") in (None, self.DEFAULT_RELATION)
+                            and short_val.get("relation") not in (None, self.DEFAULT_RELATION)
+                        ):
+                            merged["relation"] = short_val["relation"]
+                        norm_users[full_k] = merged
+                        absorbed_short_keys.add(prefix_digit)
+                        healed += 1
+
+            final_users = {}
+            for k, val in norm_users.items():
+                if k in absorbed_short_keys:
+                    continue
+                if "name" not in val:
+                    val["name"] = ""
+                    patched += 1
+                if "muted_until" not in val:
+                    val["muted_until"] = None
+                    patched += 1
+                rel = val.get("relation")
+                if not rel:
+                    val["relation"] = self.relation_for_score(
+                        int(val.get("score", 0) or 0)
+                    )
+                    patched += 1
+                elif rel in self.LEGACY_RELATION_MAP:
+                    val["relation"] = self.LEGACY_RELATION_MAP[rel]
+                    patched += 1
+                if "pending_rel" not in val:
+                    val["pending_rel"] = None
+                    patched += 1
+                if "rel_cooldown_until" not in val:
+                    val["rel_cooldown_until"] = None
+                    patched += 1
+                final_users[k] = val
+            new_data[group_key] = final_users
+
+        if migrated > 0 or patched > 0 or healed > 0:
             self._write(new_data, persona_id)
             details = []
+            if healed:
+                details.append(f"自愈恢复了 {healed} 条被截断的 OpenID 档案")
             if migrated:
                 details.append(f"修正了 {migrated} 条历史错误 key")
             if patched:
@@ -301,7 +389,14 @@ class FavorabilityManager:
         self, group_key: str, user_id: str, persona_id: str = "default"
     ) -> dict:
         data = self._read(persona_id)
-        raw = data.get(group_key, {}).get(user_id, self.DEFAULT_USER.copy())
+        group_data = data.get(group_key, {})
+        raw = group_data.get(user_id)
+        if raw is None:
+            short_k = self._find_legacy_short_key(group_data, user_id)
+            if short_k:
+                raw = group_data[short_k]
+        if raw is None:
+            raw = self.DEFAULT_USER.copy()
         # 确保所有字段存在（兼容旧数据）
         result = self.DEFAULT_USER.copy()
         result.update(raw)
@@ -323,7 +418,12 @@ class FavorabilityManager:
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
-                data[group_key][user_id] = self.DEFAULT_USER.copy()
+                short_k = self._find_legacy_short_key(data[group_key], user_id, user_name)
+                if short_k:
+                    data[group_key][user_id] = data[group_key].pop(short_k)
+                    logger.info(f"[favorability][{persona_id}] 用户 {user_id} 继承并升级了历史截断档案 {short_k}")
+                else:
+                    data[group_key][user_id] = self.DEFAULT_USER.copy()
             data[group_key][user_id]["score"] += max(-5, min(5, change))
             if new_eval:
                 data[group_key][user_id]["eval"] = new_eval.strip()
@@ -345,7 +445,11 @@ class FavorabilityManager:
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
-                data[group_key][user_id] = self.DEFAULT_USER.copy()
+                short_k = self._find_legacy_short_key(data[group_key], user_id, user_name)
+                if short_k:
+                    data[group_key][user_id] = data[group_key].pop(short_k)
+                else:
+                    data[group_key][user_id] = self.DEFAULT_USER.copy()
             data[group_key][user_id]["score"] = score
             if user_name:
                 data[group_key][user_id]["name"] = user_name
@@ -370,7 +474,11 @@ class FavorabilityManager:
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
-                data[group_key][user_id] = self.DEFAULT_USER.copy()
+                short_k = self._find_legacy_short_key(data[group_key], user_id, user_name)
+                if short_k:
+                    data[group_key][user_id] = data[group_key].pop(short_k)
+                else:
+                    data[group_key][user_id] = self.DEFAULT_USER.copy()
             data[group_key][user_id]["relation"] = relation
             data[group_key][user_id]["pending_rel"] = None
             if user_name:
@@ -396,7 +504,11 @@ class FavorabilityManager:
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
-                data[group_key][user_id] = self.DEFAULT_USER.copy()
+                short_k = self._find_legacy_short_key(data[group_key], user_id, user_name)
+                if short_k:
+                    data[group_key][user_id] = data[group_key].pop(short_k)
+                else:
+                    data[group_key][user_id] = self.DEFAULT_USER.copy()
             user = data[group_key][user_id]
             current = user.get("relation") or self.DEFAULT_RELATION
             pending = self.effective_pending(user)
@@ -537,7 +649,12 @@ class FavorabilityManager:
     ) -> bool:
         """检查用户是否处于禁言状态（自动清除已过期）。"""
         data = self._read(persona_id)
-        user_data = data.get(group_key, {}).get(user_id)
+        group_data = data.get(group_key, {})
+        user_data = group_data.get(user_id)
+        if not user_data:
+            short_k = self._find_legacy_short_key(group_data, user_id)
+            if short_k:
+                user_data = group_data.get(short_k)
         if not user_data:
             return False
         muted_until = user_data.get("muted_until")
@@ -552,7 +669,12 @@ class FavorabilityManager:
     ) -> float:
         """获取剩余禁言秒数，未禁言返回 0。"""
         data = self._read(persona_id)
-        user_data = data.get(group_key, {}).get(user_id)
+        group_data = data.get(group_key, {})
+        user_data = group_data.get(user_id)
+        if not user_data:
+            short_k = self._find_legacy_short_key(group_data, user_id)
+            if short_k:
+                user_data = group_data.get(short_k)
         if not user_data:
             return 0
         muted_until = user_data.get("muted_until")
@@ -580,7 +702,11 @@ class FavorabilityManager:
             if group_key not in data:
                 data[group_key] = {}
             if user_id not in data[group_key]:
-                data[group_key][user_id] = self.DEFAULT_USER.copy()
+                short_k = self._find_legacy_short_key(data[group_key], user_id)
+                if short_k:
+                    data[group_key][user_id] = data[group_key].pop(short_k)
+                else:
+                    data[group_key][user_id] = self.DEFAULT_USER.copy()
             data[group_key][user_id]["muted_until"] = muted_until
             self._write(data, persona_id)
         return muted_until
@@ -591,7 +717,14 @@ class FavorabilityManager:
         """解除用户禁言。"""
         async with self.get_lock(persona_id):
             data = self._read(persona_id)
-            if group_key in data and user_id in data[group_key]:
-                data[group_key][user_id]["muted_until"] = None
-                self._write(data, persona_id)
+            if group_key in data:
+                if user_id in data[group_key]:
+                    data[group_key][user_id]["muted_until"] = None
+                    self._write(data, persona_id)
+                else:
+                    short_k = self._find_legacy_short_key(data[group_key], user_id)
+                    if short_k and short_k in data[group_key]:
+                        data[group_key][user_id] = data[group_key].pop(short_k)
+                        data[group_key][user_id]["muted_until"] = None
+                        self._write(data, persona_id)
 
