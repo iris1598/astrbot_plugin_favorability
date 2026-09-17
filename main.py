@@ -43,7 +43,7 @@ from .commands.admin import AdminCommands
     "Iris1598",
     "好感度系统：好感度数值影响说话态度，关系档位独立管理（提议+确认升降档），"
     "支持表情包回应、禁言处罚，PIL图片渲染",
-    "v3.0.0",
+    "v3.0.1",
 )
 class FavorabilityPlugin(Star):
     _SETTING_GROUPS = {

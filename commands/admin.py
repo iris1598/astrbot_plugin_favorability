@@ -11,9 +11,9 @@
 
 from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
-import astrbot.api.message_components as Comp
 
 from ..models.manager import extract_user_id
+from .mentions import extract_at_target_id
 
 
 class AdminCommands:
@@ -27,11 +27,12 @@ class AdminCommands:
         return self._plugin
 
     def _extract_at_user(self, event: AstrMessageEvent) -> str | None:
-        """从消息链中提取 @ 目标的用户 ID。"""
-        for comp in event.message_obj.message:
-            if isinstance(comp, Comp.At):
-                return str(comp.qq)
-        return None
+        """从消息链中提取 @ 目标的用户 ID。
+
+        会忽略「@机器人」这个唤醒前缀与 @全体成员，避免
+        `@机器人 设置好感度 @张三 100` 被误解析为操作机器人自己。
+        """
+        return extract_at_target_id(event)
 
     # ── 设置好感度 ─────────────────────────────────────────
 

@@ -52,6 +52,6 @@ help: |
     - 系统时间注入开关：启用后每次请求注入当前时间和星期几（通过 extra_user_content_parts）
     - 用户信息注入开关：启用后每次请求注入用户名和ID（通过 extra_user_content_parts）
     - 好感度卡片主题：可选 dark / light
-version: v3.0.0
+version: v3.0.1
 author: Iris1598
 repo: "https://github.com/iris1598/astrbot_plugin_favorability"

@@ -11,9 +11,9 @@
 
 from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
-import astrbot.api.message_components as Comp
 
 from ..models.manager import extract_user_id
+from .mentions import extract_at_target_id
 
 
 class UserCommands:
@@ -42,12 +42,8 @@ class UserCommands:
             return
         group_key, self_id = plug.keys(event)
 
-        # 优先从消息链提取 @ 目标
-        target_id = None
-        for comp in event.message_obj.message:
-            if isinstance(comp, Comp.At):
-                target_id = str(comp.qq)
-                break
+        # 优先从消息链提取 @ 目标（自动忽略 @机器人 自身与 @全体成员）
+        target_id = extract_at_target_id(event)
 
         if target_id:
             label = f"用户 {target_id}"
